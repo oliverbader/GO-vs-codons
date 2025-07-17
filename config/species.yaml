@@ -1,0 +1,19 @@
+species:
+  - code: afumigatus
+    name: Aspergillus fumigatus
+    genome_dir: data/genomes/afumigatus/
+    gaf: data/go/mappings/afumigatus.gaf
+go_obo: data/go/go.obo
+adaptive:
+  start_pct: 75
+  step_pct: 10
+  rounds: 3
+wobble_only: true
+wobble_aas:
+  - Leu
+  - Lys
+  - Gln
+  - Glu
+  - Phe
+  - Trp
+output_dir: results
