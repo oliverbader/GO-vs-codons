@@ -13,7 +13,8 @@ from .utils.config_loader import load_config, validate_config, expand_paths
 from .utils.file_utils import ensure_directory, save_dataframe
 from .parsers.genome_parser import load_genome_annotations, validate_cds_sequences
 from .parsers.go_parser import load_go_ontology, parse_gaf_file, propagate_go_annotations
-from .analysis.codon_usage import compute_relative_usage_by_aa, filter_wobble_codons
+from .analysis.codon_usage import (compute_relative_usage_by_aa, filter_wobble_codons,
+                                   validate_cug_clade_usage, get_cug_clade_info)
 from .analysis.stats import adaptive_go_analysis, create_gene2go_dict
 from .viz.boxplots import create_batch_boxplots
 from .viz.heatmap import create_batch_heatmaps
@@ -58,6 +59,9 @@ logger = logging.getLogger(__name__)
 @click.option('--wobble-list', 
               type=click.Path(exists=True),
               help='JSON/YAML list of AAs for wobble filter')
+@click.option('--cug-clade', 
+              is_flag=True,
+              help='Use CUG-clade genetic code (CTG codes for Serine)')
 @click.option('--outdir', 
               type=click.Path(),
               help='Output directory (overrides config)')
@@ -89,6 +93,7 @@ def main(config: Optional[str],
          adaptive_rounds: int,
          wobble_only: bool,
          wobble_list: Optional[str],
+         cug_clade: bool,
          outdir: Optional[str],
          species: Optional[str],
          validate_only: bool,
@@ -100,7 +105,7 @@ def main(config: Optional[str],
     Codon-GO Analysis Pipeline
     
     A modular Python pipeline for analyzing codon usage and GO term enrichment
-    in eukaryotic genomes.
+    in eukaryotic genomes, with support for CUG-clade fungi.
     """
     # Configure logging level
     if verbose:
@@ -109,6 +114,13 @@ def main(config: Optional[str],
         logging.getLogger().setLevel(logging.ERROR)
     
     logger.info("Starting Codon-GO Analysis Pipeline")
+    
+    # Display CUG-clade information if requested
+    if cug_clade:
+        cug_info = get_cug_clade_info()
+        logger.info("CUG-clade genetic code enabled:")
+        for codon, info in cug_info.items():
+            logger.info(f"  {codon}: {info['standard']} (standard) → {info['cug_clade']} (CUG-clade)")
     
     try:
         # Load and validate configuration
@@ -119,14 +131,14 @@ def main(config: Optional[str],
             # Create minimal config from command line options
             config_data = _create_cli_config(
                 genome_dir, go_obo, go_gaf, adaptive_start, 
-                adaptive_step, adaptive_rounds, wobble_only, outdir
+                adaptive_step, adaptive_rounds, wobble_only, cug_clade, outdir
             )
         
         # Override config with command line options
         config_data = _override_config(
             config_data, genome_dir, go_obo, go_gaf, 
             adaptive_start, adaptive_step, adaptive_rounds, 
-            wobble_only, outdir
+            wobble_only, cug_clade, outdir
         )
         
         # Load wobble list if provided
@@ -148,6 +160,11 @@ def main(config: Optional[str],
         for species_config in species_list:
             logger.info(f"Processing species: {species_config['name']} ({species_config['code']})")
             
+            # Check if this species is CUG-clade
+            species_cug_clade = species_config.get('cug_clade', False) or cug_clade
+            if species_cug_clade:
+                logger.info(f"Species {species_config['code']} configured as CUG-clade")
+            
             success = process_species(
                 species_config=species_config,
                 go_obo_path=config_data['go_obo'],
@@ -156,7 +173,8 @@ def main(config: Optional[str],
                 output_dir=config_data['output_dir'],
                 validate_only=validate_only,
                 skip_validation=skip_validation,
-                figure_format=figure_format
+                figure_format=figure_format,
+                cug_clade=species_cug_clade
             )
             
             if success:
@@ -182,7 +200,8 @@ def process_species(species_config: Dict,
                    output_dir: str,
                    validate_only: bool,
                    skip_validation: bool,
-                   figure_format: str) -> bool:
+                   figure_format: str,
+                   cug_clade: bool = False) -> bool:
     """
     Process a single species through the complete pipeline.
     
@@ -195,6 +214,7 @@ def process_species(species_config: Dict,
         validate_only: Only validate sequences
         skip_validation: Skip sequence validation
         figure_format: Output format for figures
+        cug_clade: Use CUG-clade genetic code
         
     Returns:
         True if successful, False otherwise
@@ -228,11 +248,21 @@ def process_species(species_config: Dict,
         
         # Step 3: Compute codon usage
         logger.info("Computing codon usage")
-        codon_usage_df = compute_relative_usage_by_aa(genome_records)
+        codon_usage_df = compute_relative_usage_by_aa(genome_records, cug_clade=cug_clade)
         
         if codon_usage_df.empty:
             logger.error("No codon usage data computed")
             return False
+        
+        # Validate CUG-clade usage if enabled
+        if cug_clade:
+            validation_results = validate_cug_clade_usage(codon_usage_df, cug_clade=True)
+            logger.info(f"CUG-clade validation results: {validation_results}")
+            
+            # Save validation results
+            validation_path = os.path.join(processed_dir, f'{species_code}_cug_validation.tsv')
+            validation_df = pd.DataFrame([validation_results])
+            save_dataframe(validation_df, validation_path)
         
         # Save codon usage data
         codon_usage_path = os.path.join(processed_dir, f'{species_code}_codon_usage.tsv')
@@ -319,6 +349,7 @@ def _create_cli_config(genome_dir: Optional[str],
                       adaptive_step: int,
                       adaptive_rounds: int,
                       wobble_only: bool,
+                      cug_clade: bool,
                       outdir: Optional[str]) -> Dict:
     """Create configuration from command line arguments."""
     if not all([genome_dir, go_obo, go_gaf]):
@@ -329,7 +360,8 @@ def _create_cli_config(genome_dir: Optional[str],
             'code': 'cli_species',
             'name': 'CLI Species',
             'genome_dir': genome_dir,
-            'gaf': go_gaf
+            'gaf': go_gaf,
+            'cug_clade': cug_clade
         }],
         'go_obo': go_obo,
         'adaptive': {
@@ -352,6 +384,7 @@ def _override_config(config: Dict,
                     adaptive_step: int,
                     adaptive_rounds: int,
                     wobble_only: bool,
+                    cug_clade: bool,
                     outdir: Optional[str]) -> Dict:
     """Override configuration with command line arguments."""
     if outdir:
@@ -369,12 +402,14 @@ def _override_config(config: Dict,
         config['wobble_only'] = True
     
     # Override species settings if provided
-    if genome_dir or go_gaf:
+    if genome_dir or go_gaf or cug_clade:
         for species in config.get('species', []):
             if genome_dir:
                 species['genome_dir'] = genome_dir
             if go_gaf:
                 species['gaf'] = go_gaf
+            if cug_clade:
+                species['cug_clade'] = cug_clade
     
     return config
 
@@ -417,6 +452,31 @@ def validate_config_cmd(config_path: str) -> None:
         sys.exit(1)
 
 
+@click.command()
+def show_cug_info() -> None:
+    """Show information about CUG-clade genetic code differences."""
+    cug_info = get_cug_clade_info()
+    
+    click.echo("CUG-Clade Genetic Code Information")
+    click.echo("=" * 40)
+    click.echo()
+    click.echo("CUG-clade fungi use a non-standard genetic code where:")
+    
+    for codon, info in cug_info.items():
+        click.echo(f"  {codon}: {info['standard']} (standard) → {info['cug_clade']} (CUG-clade)")
+    
+    click.echo()
+    click.echo("Common CUG-clade species include:")
+    click.echo("  - Candida albicans")
+    click.echo("  - Candida tropicalis")
+    click.echo("  - Candida parapsilosis")
+    click.echo("  - Candida dubliniensis")
+    click.echo("  - Debaryomyces hansenii")
+    click.echo("  - Lodderomyces elongisporus")
+    click.echo()
+    click.echo("Use --cug-clade flag or set cug_clade: true in config for these species.")
+
+
 @click.group()
 def cli():
     """Codon-GO Analysis Pipeline CLI."""
@@ -427,6 +487,7 @@ def cli():
 cli.add_command(main, name='run')
 cli.add_command(create_config, name='create-config')
 cli.add_command(validate_config_cmd, name='validate-config')
+cli.add_command(show_cug_info, name='show-cug-info')
 
 
 if __name__ == '__main__':

@@ -130,6 +130,12 @@ def test_pipeline():
     name: Test Species
     genome_dir: {test_dir}/genomes/test_species/
     gaf: {test_dir}/go/mappings/test_species.gaf
+    cug_clade: false
+  - code: test_cug_species
+    name: Test CUG Species
+    genome_dir: {test_dir}/genomes/test_species/
+    gaf: {test_dir}/go/mappings/test_species.gaf
+    cug_clade: true
 go_obo: {test_dir}/go/go.obo
 adaptive:
   start_pct: 75
@@ -139,6 +145,7 @@ wobble_only: false
 wobble_aas:
   - Leu
   - Lys
+  - Ser
 output_dir: {test_dir}/results
 """
         
@@ -154,13 +161,33 @@ output_dir: {test_dir}/results
         records = load_genome_annotations(str(genome_dir))
         print(f"✓ Loaded {len(records)} genome records")
         
-        # Test 3: Codon usage analysis
-        print("\n3. Testing codon usage analysis...")
-        codon_usage_df = compute_relative_usage_by_aa(records)
-        print(f"✓ Computed codon usage: {len(codon_usage_df)} observations")
+        # Test 3: Codon usage analysis (standard genetic code)
+        print("\n3. Testing codon usage analysis (standard genetic code)...")
+        codon_usage_df = compute_relative_usage_by_aa(records, cug_clade=False)
+        print(f"✓ Computed standard codon usage: {len(codon_usage_df)} observations")
         
-        # Test 4: Visualization (if possible)
-        print("\n4. Testing visualization...")
+        # Test 4: Codon usage analysis (CUG-clade genetic code)
+        print("\n4. Testing codon usage analysis (CUG-clade genetic code)...")
+        codon_usage_cug_df = compute_relative_usage_by_aa(records, cug_clade=True)
+        print(f"✓ Computed CUG-clade codon usage: {len(codon_usage_cug_df)} observations")
+        
+        # Test 5: CUG-clade validation
+        print("\n5. Testing CUG-clade validation...")
+        from codon_go.analysis.codon_usage import validate_cug_clade_usage, get_cug_clade_info
+        
+        # Show CUG-clade info
+        cug_info = get_cug_clade_info()
+        print(f"✓ CUG-clade genetic code info: {cug_info}")
+        
+        # Validate both datasets
+        std_validation = validate_cug_clade_usage(codon_usage_df, cug_clade=False)
+        cug_validation = validate_cug_clade_usage(codon_usage_cug_df, cug_clade=True)
+        
+        print(f"✓ Standard validation: CTG assigned to {std_validation.get('ctg_assigned_to', 'N/A')}")
+        print(f"✓ CUG-clade validation: CTG assigned to {cug_validation.get('ctg_assigned_to', 'N/A')}")
+        
+        # Test 6: Visualization (if possible)
+        print("\n6. Testing visualization...")
         if not codon_usage_df.empty:
             output_dir = test_dir / "results" / "figures"
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +199,16 @@ output_dir: {test_dir}/results
                 output_path = output_dir / f"test_boxplot_{test_aa}.svg"
                 create_codon_boxplot(codon_usage_df, test_aa, str(output_path))
                 print(f"✓ Created test boxplot for {test_aa}")
+            
+            # Test CUG-clade comparison if we have both datasets
+            if not codon_usage_cug_df.empty:
+                from codon_go.viz.boxplots import create_cug_clade_comparison_boxplot
+                
+                cug_comparison_path = output_dir / "test_cug_comparison.svg"
+                create_cug_clade_comparison_boxplot(
+                    codon_usage_df, codon_usage_cug_df, str(cug_comparison_path)
+                )
+                print("✓ Created CUG-clade comparison boxplot")
         
         print("\n✅ All tests passed!")
         print(f"Test results saved in: {test_dir}")
@@ -183,6 +220,7 @@ output_dir: {test_dir}/results
         return False
     
     return True
+
 
 def main():
     """Main test function."""
@@ -198,6 +236,10 @@ def main():
         print("2. Prepare your data in the required format")
         print("3. Create configuration: python codon_go.py create-config")
         print("4. Run analysis: python codon_go.py run --config config/species.yaml")
+        print("\nFor CUG-clade fungi:")
+        print("5. Show CUG-clade info: python codon_go.py show-cug-info")
+        print("6. Set cug_clade: true in config or use --cug-clade flag")
+        print("7. Include 'Ser' in wobble_aas for comprehensive analysis")
     else:
         print("\n💥 Pipeline test failed!")
         sys.exit(1)

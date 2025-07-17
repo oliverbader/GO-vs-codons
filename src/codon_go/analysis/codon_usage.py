@@ -16,13 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 def compute_relative_usage_by_aa(records: Dict[str, SeqRecord], 
-                                codon_table_file: Optional[str] = None) -> pd.DataFrame:
+                                codon_table_file: Optional[str] = None,
+                                cug_clade: bool = False) -> pd.DataFrame:
     """
     For each gene, compute relative usage of synonymous codons per AA.
     
     Args:
         records: Dictionary of gene_id → SeqRecord
         codon_table_file: Optional path to custom codon table JSON
+        cug_clade: If True, use CUG-clade genetic code (CUG codes for Serine)
         
     Returns:
         DataFrame with columns: gene_id, AA, codon, count, rel_usage
@@ -38,8 +40,13 @@ def compute_relative_usage_by_aa(records: Dict[str, SeqRecord],
     else:
         # Use standard genetic code
         table = CodonTable.unambiguous_dna_by_id[1]
-        codon_to_aa = table.forward_table
+        codon_to_aa = table.forward_table.copy()
         logger.info("Using standard genetic code")
+    
+    # Apply CUG-clade modification if requested
+    if cug_clade:
+        codon_to_aa['CTG'] = 'S'  # CUG codes for Serine instead of Leucine
+        logger.info("Applied CUG-clade genetic code modification: CTG → Serine")
     
     rows = []
     
@@ -94,13 +101,16 @@ def compute_relative_usage_by_aa(records: Dict[str, SeqRecord],
     return df
 
 
-def get_synonymous_codons(aa: str, codon_table_file: Optional[str] = None) -> Set[str]:
+def get_synonymous_codons(aa: str, 
+                         codon_table_file: Optional[str] = None,
+                         cug_clade: bool = False) -> Set[str]:
     """
     Get all synonymous codons for a given amino acid.
     
     Args:
         aa: Single letter amino acid code
         codon_table_file: Optional path to custom codon table JSON
+        cug_clade: If True, use CUG-clade genetic code
         
     Returns:
         Set of synonymous codons
@@ -112,7 +122,11 @@ def get_synonymous_codons(aa: str, codon_table_file: Optional[str] = None) -> Se
         codon_to_aa = custom_table['codon_table']
     else:
         table = CodonTable.unambiguous_dna_by_id[1]
-        codon_to_aa = table.forward_table
+        codon_to_aa = table.forward_table.copy()
+    
+    # Apply CUG-clade modification if requested
+    if cug_clade:
+        codon_to_aa['CTG'] = 'S'
     
     # Find all codons that code for this amino acid
     synonymous = set()
@@ -121,6 +135,111 @@ def get_synonymous_codons(aa: str, codon_table_file: Optional[str] = None) -> Se
             synonymous.add(codon)
     
     return synonymous
+
+
+def get_cug_clade_info() -> Dict[str, str]:
+    """
+    Get information about the CUG-clade genetic code differences.
+    
+    Returns:
+        Dictionary with genetic code differences
+    """
+    return {
+        'CTG': {
+            'standard': 'L',  # Leucine in standard code
+            'cug_clade': 'S'  # Serine in CUG-clade
+        }
+    }
+
+
+def validate_cug_clade_usage(df: pd.DataFrame, cug_clade: bool = False) -> Dict[str, any]:
+    """
+    Validate and analyze CUG codon usage patterns.
+    
+    Args:
+        df: DataFrame with codon usage data
+        cug_clade: Whether CUG-clade genetic code was used
+        
+    Returns:
+        Dictionary with validation results
+    """
+    results = {
+        'cug_clade_mode': cug_clade,
+        'ctg_present': 'CTG' in df['codon'].values,
+        'ctg_count': 0,
+        'ctg_assigned_to': None,
+        'leucine_codons': [],
+        'serine_codons': []
+    }
+    
+    if 'CTG' in df['codon'].values:
+        ctg_data = df[df['codon'] == 'CTG']
+        results['ctg_count'] = ctg_data['count'].sum()
+        
+        # Check which amino acid CTG is assigned to
+        ctg_aa = ctg_data['AA'].iloc[0] if len(ctg_data) > 0 else None
+        results['ctg_assigned_to'] = ctg_aa
+        
+        # Validate assignment matches expectation
+        if cug_clade and ctg_aa != 'S':
+            logger.warning(f"CUG-clade mode enabled but CTG assigned to {ctg_aa}, expected S")
+        elif not cug_clade and ctg_aa != 'L':
+            logger.warning(f"Standard mode but CTG assigned to {ctg_aa}, expected L")
+    
+    # Get codon lists for leucine and serine
+    leucine_codons = df[df['AA'] == 'L']['codon'].unique().tolist()
+    serine_codons = df[df['AA'] == 'S']['codon'].unique().tolist()
+    
+    results['leucine_codons'] = sorted(leucine_codons)
+    results['serine_codons'] = sorted(serine_codons)
+    
+    return results
+
+
+def create_genetic_code_comparison(standard_df: pd.DataFrame, 
+                                  cug_clade_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compare codon usage between standard and CUG-clade genetic codes.
+    
+    Args:
+        standard_df: DataFrame with standard genetic code usage
+        cug_clade_df: DataFrame with CUG-clade genetic code usage
+        
+    Returns:
+        DataFrame with comparison results
+    """
+    comparison_rows = []
+    
+    # Focus on CTG codon specifically
+    for df, code_type in [(standard_df, 'standard'), (cug_clade_df, 'cug_clade')]:
+        ctg_data = df[df['codon'] == 'CTG']
+        
+        if len(ctg_data) > 0:
+            comparison_rows.append({
+                'genetic_code': code_type,
+                'codon': 'CTG',
+                'amino_acid': ctg_data['AA'].iloc[0],
+                'total_usage': ctg_data['count'].sum(),
+                'mean_rel_usage': ctg_data['rel_usage'].mean(),
+                'genes_using': ctg_data['gene_id'].nunique()
+            })
+    
+    # Compare leucine and serine codon families
+    for aa in ['L', 'S']:
+        for df, code_type in [(standard_df, 'standard'), (cug_clade_df, 'cug_clade')]:
+            aa_data = df[df['AA'] == aa]
+            
+            if len(aa_data) > 0:
+                comparison_rows.append({
+                    'genetic_code': code_type,
+                    'codon': f'{aa}_family',
+                    'amino_acid': aa,
+                    'total_usage': aa_data['count'].sum(),
+                    'mean_rel_usage': aa_data['rel_usage'].mean(),
+                    'genes_using': aa_data['gene_id'].nunique()
+                })
+    
+    return pd.DataFrame(comparison_rows)
 
 
 def filter_wobble_codons(df: pd.DataFrame, wobble_aas: Set[str]) -> pd.DataFrame:

@@ -75,6 +75,11 @@ def validate_config(config: Dict[str, Any]) -> None:
         for key in required_species_keys:
             if key not in species:
                 raise ValueError(f"Missing required species key: {key}")
+        
+        # Validate cug_clade if present
+        if 'cug_clade' in species:
+            if not isinstance(species['cug_clade'], bool):
+                raise ValueError(f"Species {i} cug_clade must be boolean")
     
     # Validate adaptive configuration
     adaptive_config = config['adaptive']
@@ -134,7 +139,15 @@ def get_default_config() -> Dict[str, Any]:
                 'code': 'example_species',
                 'name': 'Example Species',
                 'genome_dir': 'data/genomes/example_species/',
-                'gaf': 'data/go/mappings/example_species.gaf'
+                'gaf': 'data/go/mappings/example_species.gaf',
+                'cug_clade': False
+            },
+            {
+                'code': 'candida_albicans',
+                'name': 'Candida albicans',
+                'genome_dir': 'data/genomes/candida_albicans/',
+                'gaf': 'data/go/mappings/candida_albicans.gaf',
+                'cug_clade': True
             }
         ],
         'go_obo': 'data/go/go.obo',
@@ -144,7 +157,7 @@ def get_default_config() -> Dict[str, Any]:
             'rounds': 3
         },
         'wobble_only': False,
-        'wobble_aas': ['Leu', 'Lys', 'Gln', 'Glu', 'Phe', 'Trp'],
+        'wobble_aas': ['Leu', 'Lys', 'Gln', 'Glu', 'Phe', 'Trp', 'Ser'],
         'output_dir': 'results'
     }
 

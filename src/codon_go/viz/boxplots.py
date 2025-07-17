@@ -431,6 +431,146 @@ def _save_figure(fig, output_path: str, format: str) -> None:
         fig.savefig(output_path, format='svg', bbox_inches='tight')
 
 
+def create_cug_clade_comparison_boxplot(
+    standard_df: pd.DataFrame,
+    cug_clade_df: pd.DataFrame,
+    output_path: str,
+    title: Optional[str] = None,
+    figsize: tuple = (12, 8),
+    format: str = 'svg'
+) -> None:
+    """
+    Create comparative boxplot for CUG-clade analysis showing CTG usage differences.
+    
+    Args:
+        standard_df: DataFrame with standard genetic code codon usage
+        cug_clade_df: DataFrame with CUG-clade genetic code codon usage
+        output_path: Path to save the figure
+        title: Optional custom title
+        figsize: Figure size tuple
+        format: Output format ('svg', 'pdf', 'png')
+    """
+    logger.info("Creating CUG-clade comparison boxplot")
+    
+    # Create figure with subplots
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    
+    # Plot 1: CTG usage in both genetic codes
+    ax1 = axes[0, 0]
+    
+    # Get CTG data from both datasets
+    standard_ctg = standard_df[standard_df['codon'] == 'CTG']['rel_usage'] if 'CTG' in standard_df['codon'].values else pd.Series([])
+    cug_clade_ctg = cug_clade_df[cug_clade_df['codon'] == 'CTG']['rel_usage'] if 'CTG' in cug_clade_df['codon'].values else pd.Series([])
+    
+    if len(standard_ctg) > 0 and len(cug_clade_ctg) > 0:
+        box_data = [standard_ctg.values, cug_clade_ctg.values]
+        labels = [f'Standard\n(CTG→Leu)\n(n={len(standard_ctg)})', f'CUG-clade\n(CTG→Ser)\n(n={len(cug_clade_ctg)})']
+        
+        bp = ax1.boxplot(box_data, labels=labels, patch_artist=True)
+        bp['boxes'][0].set_facecolor('lightblue')
+        bp['boxes'][1].set_facecolor('lightcoral')
+        
+        ax1.set_ylabel('CTG Relative Usage', fontsize=12)
+        ax1.set_title('CTG Codon Usage Comparison', fontsize=12, fontweight='bold')
+        ax1.grid(True, alpha=0.3)
+        
+        # Add statistical comparison
+        from scipy.stats import mannwhitneyu
+        try:
+            stat, p_value = mannwhitneyu(standard_ctg, cug_clade_ctg, alternative='two-sided')
+            ax1.text(0.5, 0.95, f'p = {p_value:.4f}', transform=ax1.transAxes, 
+                    ha='center', va='top', bbox=dict(boxstyle='round', facecolor='yellow', alpha=0.7))
+        except:
+            pass
+    
+    # Plot 2: Leucine family usage in standard code
+    ax2 = axes[0, 1]
+    
+    standard_leu = standard_df[standard_df['AA'] == 'L']
+    if not standard_leu.empty:
+        leu_codons = sorted(standard_leu['codon'].unique())
+        leu_data = [standard_leu[standard_leu['codon'] == codon]['rel_usage'].values for codon in leu_codons]
+        
+        bp = ax2.boxplot(leu_data, labels=leu_codons, patch_artist=True)
+        colors = sns.color_palette("Blues", len(leu_codons))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        
+        ax2.set_ylabel('Relative Usage', fontsize=12)
+        ax2.set_title('Leucine Codons (Standard)', fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='x', rotation=45)
+    
+    # Plot 3: Serine family usage in CUG-clade
+    ax3 = axes[1, 0]
+    
+    cug_clade_ser = cug_clade_df[cug_clade_df['AA'] == 'S']
+    if not cug_clade_ser.empty:
+        ser_codons = sorted(cug_clade_ser['codon'].unique())
+        ser_data = [cug_clade_ser[cug_clade_ser['codon'] == codon]['rel_usage'].values for codon in ser_codons]
+        
+        bp = ax3.boxplot(ser_data, labels=ser_codons, patch_artist=True)
+        colors = sns.color_palette("Reds", len(ser_codons))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+        
+        ax3.set_ylabel('Relative Usage', fontsize=12)
+        ax3.set_title('Serine Codons (CUG-clade)', fontsize=12, fontweight='bold')
+        ax3.grid(True, alpha=0.3)
+        ax3.tick_params(axis='x', rotation=45)
+    
+    # Plot 4: Summary statistics
+    ax4 = axes[1, 1]
+    
+    # Create summary data
+    summary_data = []
+    
+    # CTG usage statistics
+    if len(standard_ctg) > 0:
+        summary_data.append(['Standard CTG→Leu', f'{standard_ctg.mean():.3f} ± {standard_ctg.std():.3f}'])
+    if len(cug_clade_ctg) > 0:
+        summary_data.append(['CUG-clade CTG→Ser', f'{cug_clade_ctg.mean():.3f} ± {cug_clade_ctg.std():.3f}'])
+    
+    # Leucine and serine family statistics
+    if not standard_leu.empty:
+        leu_mean = standard_leu.groupby('codon')['rel_usage'].mean()
+        summary_data.append(['Leucine family (std)', f'{len(leu_mean)} codons'])
+    
+    if not cug_clade_ser.empty:
+        ser_mean = cug_clade_ser.groupby('codon')['rel_usage'].mean()
+        summary_data.append(['Serine family (CUG)', f'{len(ser_mean)} codons'])
+    
+    # Display summary as table
+    if summary_data:
+        ax4.axis('tight')
+        ax4.axis('off')
+        table = ax4.table(cellText=summary_data, 
+                         colLabels=['Metric', 'Value'],
+                         cellLoc='left',
+                         loc='center')
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1.2, 1.5)
+        ax4.set_title('Summary Statistics', fontsize=12, fontweight='bold')
+    
+    # Overall title
+    if title:
+        fig.suptitle(title, fontsize=16, fontweight='bold')
+    else:
+        fig.suptitle('CUG-Clade Genetic Code Analysis', fontsize=16, fontweight='bold')
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure
+    _save_figure(fig, output_path, format)
+    plt.close()
+    
+    logger.info(f"Saved CUG-clade comparison boxplot to {output_path}")
+
+
 def create_batch_boxplots(
     df: pd.DataFrame,
     output_dir: str,
@@ -454,3 +594,71 @@ def create_batch_boxplots(
     for aa in amino_acids:
         output_path = os.path.join(output_dir, f'boxplot_{aa}.{format}')
         create_codon_boxplot(df, aa, output_path, format=format)
+
+
+def create_cug_clade_batch_comparison(
+    standard_df: pd.DataFrame,
+    cug_clade_df: pd.DataFrame,
+    output_dir: str,
+    format: str = 'svg'
+) -> None:
+    """
+    Create batch comparison plots for CUG-clade analysis.
+    
+    Args:
+        standard_df: DataFrame with standard genetic code usage
+        cug_clade_df: DataFrame with CUG-clade genetic code usage
+        output_dir: Output directory
+        format: Output format
+    """
+    logger.info("Creating CUG-clade batch comparison plots")
+    
+    # Overall comparison
+    comparison_path = os.path.join(output_dir, f'cug_clade_comparison.{format}')
+    create_cug_clade_comparison_boxplot(standard_df, cug_clade_df, comparison_path, format=format)
+    
+    # Individual amino acid comparisons for leucine and serine
+    for aa in ['L', 'S']:
+        if aa in standard_df['AA'].values and aa in cug_clade_df['AA'].values:
+            output_path = os.path.join(output_dir, f'cug_clade_{aa}_comparison.{format}')
+            
+            # Create side-by-side comparison
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            
+            # Standard code
+            std_aa_data = standard_df[standard_df['AA'] == aa]
+            if not std_aa_data.empty:
+                std_codons = sorted(std_aa_data['codon'].unique())
+                std_data = [std_aa_data[std_aa_data['codon'] == codon]['rel_usage'].values for codon in std_codons]
+                
+                bp1 = ax1.boxplot(std_data, labels=std_codons, patch_artist=True)
+                colors = sns.color_palette("Blues", len(std_codons))
+                for patch, color in zip(bp1['boxes'], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                
+                ax1.set_title(f'{aa} - Standard Code', fontsize=12, fontweight='bold')
+                ax1.set_ylabel('Relative Usage', fontsize=12)
+                ax1.grid(True, alpha=0.3)
+            
+            # CUG-clade code
+            cug_aa_data = cug_clade_df[cug_clade_df['AA'] == aa]
+            if not cug_aa_data.empty:
+                cug_codons = sorted(cug_aa_data['codon'].unique())
+                cug_data = [cug_aa_data[cug_aa_data['codon'] == codon]['rel_usage'].values for codon in cug_codons]
+                
+                bp2 = ax2.boxplot(cug_data, labels=cug_codons, patch_artist=True)
+                colors = sns.color_palette("Reds", len(cug_codons))
+                for patch, color in zip(bp2['boxes'], colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                
+                ax2.set_title(f'{aa} - CUG-clade Code', fontsize=12, fontweight='bold')
+                ax2.set_ylabel('Relative Usage', fontsize=12)
+                ax2.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            _save_figure(fig, output_path, format)
+            plt.close()
+    
+    logger.info("CUG-clade batch comparison completed")

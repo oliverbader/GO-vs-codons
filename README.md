@@ -1,6 +1,6 @@
 # Codon-GO Analysis Pipeline
 
-A modular Python pipeline for analyzing codon usage and GO term enrichment in eukaryotic genomes.
+A modular Python pipeline for analyzing codon usage and GO term enrichment in eukaryotic genomes, with specialized support for CUG-clade fungi.
 
 ## Overview
 
@@ -10,6 +10,7 @@ The Codon-GO Analysis Pipeline is a comprehensive tool designed to:
 2. **Compute** per-gene relative codon usage by amino acid
 3. **Perform** adaptive GO-term enrichment at descending thresholds, with optional wobble-modification filtering
 4. **Visualize** results in publication-quality figures
+5. **Support CUG-clade fungi** that use a non-standard genetic code (CTG codes for serine instead of leucine)
 
 ## Features
 
@@ -17,9 +18,43 @@ The Codon-GO Analysis Pipeline is a comprehensive tool designed to:
 - **Multiple Input Formats**: Support for EMBL, GenBank, and GAF files
 - **Adaptive Analysis**: Threshold-based GO enrichment analysis
 - **Wobble Filtering**: Focus on wobble-position modified amino acids
+- **CUG-Clade Support**: Specialized handling for fungi with non-standard genetic codes
 - **Rich Visualizations**: Boxplots, heatmaps, and PCA scatter plots
 - **Flexible Configuration**: YAML-based configuration with CLI overrides
 - **Publication Ready**: SVG/PDF output for high-quality figures
+
+## CUG-Clade Fungi Support
+
+This pipeline includes specialized support for CUG-clade fungi, which use a non-standard genetic code where **CTG codes for serine instead of leucine**. This is crucial for accurate codon usage analysis in species such as:
+
+- **Candida albicans**
+- **Candida tropicalis**
+- **Candida parapsilosis**
+- **Candida dubliniensis**
+- **Debaryomyces hansenii**
+- **Lodderomyces elongisporus**
+
+### Using CUG-Clade Mode
+
+#### Via Configuration File
+```yaml
+species:
+  - code: candida_albicans
+    name: Candida albicans
+    genome_dir: data/genomes/candida_albicans/
+    gaf: data/go/mappings/candida_albicans.gaf
+    cug_clade: true  # Enable CUG-clade genetic code
+```
+
+#### Via Command Line
+```bash
+python codon_go.py run --config config/species.yaml --cug-clade
+```
+
+#### Show CUG-Clade Information
+```bash
+python codon_go.py show-cug-info
+```
 
 ## Installation
 
@@ -58,6 +93,12 @@ species:
     name: Aspergillus fumigatus
     genome_dir: data/genomes/afumigatus/
     gaf: data/go/mappings/afumigatus.gaf
+    cug_clade: false
+  - code: candida_albicans
+    name: Candida albicans
+    genome_dir: data/genomes/candida_albicans/
+    gaf: data/go/mappings/candida_albicans.gaf
+    cug_clade: true  # CUG-clade species
 go_obo: data/go/go.obo
 adaptive:
   start_pct: 75
@@ -71,6 +112,7 @@ wobble_aas:
   - Glu
   - Phe
   - Trp
+  - Ser  # Important for CUG-clade analysis
 output_dir: results
 ```
 
@@ -90,12 +132,16 @@ The pipeline provides a comprehensive CLI with multiple subcommands:
 # Run complete analysis
 python codon_go.py run --config config/species.yaml
 
+# Run with CUG-clade support
+python codon_go.py run --config config/species.yaml --cug-clade
+
 # Run with CLI options (override config)
 python codon_go.py run \
     --config config/species.yaml \
     --adaptive-start 80 \
     --adaptive-rounds 5 \
     --wobble-only \
+    --cug-clade \
     --outdir results_custom
 
 # Run without config file
@@ -103,7 +149,11 @@ python codon_go.py run \
     --genome-dir data/genomes/species/ \
     --go-obo data/go/go.obo \
     --go-gaf data/go/mappings/species.gaf \
+    --cug-clade \
     --outdir results
+
+# Show CUG-clade information
+python codon_go.py show-cug-info
 
 # Validate configuration
 python codon_go.py validate-config config/species.yaml
@@ -123,6 +173,7 @@ python codon_go.py create-config --output config/example.yaml
 - `--adaptive-rounds`: Number of analysis rounds (default: 3)
 - `--wobble-only`: Restrict analysis to wobble-modified amino acids
 - `--wobble-list`: Custom wobble amino acid list (JSON/YAML)
+- `--cug-clade`: Use CUG-clade genetic code (CTG codes for serine)
 - `--outdir`: Output directory
 - `--species`: Specific species code to analyze
 - `--validate-only`: Only validate CDS sequences
@@ -170,6 +221,7 @@ project_root/
 - `<species>_codon_usage.tsv`: Per-gene codon usage statistics
 - `<species>_gene2go.tsv`: Gene-to-GO term mappings
 - `<species>_adaptive.tsv`: Adaptive enrichment results
+- `<species>_cug_validation.tsv`: CUG-clade validation results (when applicable)
 
 ### Figures (SVG/PDF/PNG)
 
@@ -178,6 +230,7 @@ project_root/
 - `pca_scatter.svg`: PCA scatter plot of codon usage
 - `pca_loadings.svg`: PCA with codon loadings
 - `pca_variance.svg`: PCA variance explained
+- `cug_clade_comparison.svg`: CUG-clade specific comparisons (when applicable)
 
 ## Configuration
 
@@ -189,6 +242,7 @@ species:
     name: Species Name          # Full species name
     genome_dir: path/to/genome/ # Directory with annotation files
     gaf: path/to/species.gaf    # GO annotation file
+    cug_clade: false           # Use CUG-clade genetic code (default: false)
 ```
 
 ### Analysis Parameters
@@ -207,7 +261,25 @@ wobble_aas:         # List of wobble amino acids
   - Glu
   - Phe
   - Trp
+  - Ser  # Important for CUG-clade species
 ```
+
+## CUG-Clade Analysis Features
+
+### Genetic Code Handling
+- Automatic detection and handling of CTG → Serine assignment
+- Validation of genetic code consistency
+- Comparison tools for standard vs. CUG-clade analysis
+
+### Specialized Visualizations
+- CTG codon usage comparisons
+- Leucine vs. Serine codon family analysis
+- Side-by-side genetic code comparisons
+
+### Validation Tools
+- CUG-clade genetic code validation
+- Codon assignment verification
+- Statistical comparison between genetic codes
 
 ## Data Requirements
 
@@ -227,16 +299,18 @@ wobble_aas:         # List of wobble amino acids
 
 1. **Genome Parsing**: Extract CDS sequences from annotation files
 2. **Sequence Validation**: Validate CDS sequences for proper start/stop codons
-3. **Codon Usage**: Calculate relative usage of synonymous codons
-4. **GO Processing**: Load ontology and propagate annotations
-5. **Adaptive Analysis**: Perform threshold-based enrichment analysis
-6. **Visualization**: Generate publication-quality figures
+3. **Genetic Code Selection**: Apply standard or CUG-clade genetic code
+4. **Codon Usage**: Calculate relative usage of synonymous codons
+5. **GO Processing**: Load ontology and propagate annotations
+6. **Adaptive Analysis**: Perform threshold-based enrichment analysis
+7. **Visualization**: Generate publication-quality figures
 
 ## Visualization Types
 
 ### Boxplots
 - Distribution of codon usage for each amino acid
 - Comparison between GO terms and background
+- CUG-clade specific comparisons (CTG usage, leucine vs. serine families)
 
 ### Heatmaps
 - Adaptive analysis results across thresholds
@@ -270,6 +344,7 @@ wobble_aas:         # List of wobble amino acids
 2. **File Format Errors**: Ensure EMBL/GenBank files are properly formatted
 3. **Memory Issues**: Large genomes may require more RAM for analysis
 4. **GO File Errors**: Verify GO ontology and GAF files are current
+5. **CUG-Clade Issues**: Ensure species are correctly marked as CUG-clade
 
 ### Logging
 
@@ -297,7 +372,7 @@ If you use this pipeline in your research, please cite:
 
 ```
 Codon-GO Analysis Pipeline: A modular Python tool for analyzing codon usage 
-and GO term enrichment in eukaryotic genomes. (2024)
+and GO term enrichment in eukaryotic genomes, with support for CUG-clade fungi. (2024)
 ```
 
 ## Contact
@@ -311,3 +386,4 @@ For questions, issues, or contributions, please contact:
 - Gene Ontology Consortium for GO data and tools
 - Biopython developers for sequence analysis tools
 - Scientific Python community for analysis libraries
+- CUG-clade research community for genetic code insights
