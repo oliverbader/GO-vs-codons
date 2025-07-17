@@ -1,0 +1,31 @@
+species:
+  - code: afumigatus
+    name: Aspergillus fumigatus
+    genome_dir: data/genomes/afumigatus/
+    gaf: data/go/mappings/afumigatus.gaf
+    cug_clade: false
+  - code: candida_albicans
+    name: Candida albicans
+    genome_dir: data/genomes/candida_albicans/
+    gaf: data/go/mappings/candida_albicans.gaf
+    cug_clade: true
+  - code: candida_tropicalis
+    name: Candida tropicalis
+    genome_dir: data/genomes/candida_tropicalis/
+    gaf: data/go/mappings/candida_tropicalis.gaf
+    cug_clade: true
+go_obo: data/go/go.obo
+adaptive:
+  start_pct: 75
+  step_pct: 10
+  rounds: 3
+wobble_only: true
+wobble_aas:
+  - Leu
+  - Lys
+  - Gln
+  - Glu
+  - Phe
+  - Trp
+  - Ser  # Important for CUG-clade species
+output_dir: results
