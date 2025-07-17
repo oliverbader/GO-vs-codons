@@ -11,6 +11,7 @@ import pandas as pd
 
 from .utils.config_loader import load_config, validate_config, expand_paths
 from .utils.file_utils import ensure_directory, save_dataframe
+from .utils.warnings_config import configure_warnings
 from .parsers.genome_parser import load_genome_annotations, validate_cds_sequences
 from .parsers.go_parser import load_go_ontology, parse_gaf_file, propagate_go_annotations
 from .analysis.codon_usage import (compute_relative_usage_by_aa, filter_wobble_codons,
@@ -107,11 +108,14 @@ def main(config: Optional[str],
     A modular Python pipeline for analyzing codon usage and GO term enrichment
     in eukaryotic genomes, with support for CUG-clade fungi.
     """
-    # Configure logging level
+    # Configure logging level and warnings
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     elif quiet:
         logging.getLogger().setLevel(logging.ERROR)
+    
+    # Configure warnings based on verbosity
+    configure_warnings(verbose=verbose)
     
     logger.info("Starting Codon-GO Analysis Pipeline")
     

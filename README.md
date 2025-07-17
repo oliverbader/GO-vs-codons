@@ -346,6 +346,22 @@ wobble_aas:         # List of wobble amino acids
 4. **GO File Errors**: Verify GO ontology and GAF files are current
 5. **CUG-Clade Issues**: Ensure species are correctly marked as CUG-clade
 
+### Dependency Warnings
+
+The pipeline automatically suppresses common deprecation warnings from dependencies (such as the `pkg_resources` warning from older packages) to keep the output clean. If you need to see all warnings for debugging:
+
+```bash
+python codon_go.py run --config config/species.yaml --verbose
+```
+
+### Testing Warning Suppression
+
+You can test that warning suppression is working correctly:
+
+```bash
+python check_warnings.py
+```
+
 ### Logging
 
 Enable verbose logging for detailed information:
