@@ -12,6 +12,10 @@ from pathlib import Path
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+# Import and configure warnings suppression
+from codon_go.utils.warnings_config import suppress_common_warnings
+suppress_common_warnings()
+
 from codon_go.utils.config_loader import create_example_config, load_config
 from codon_go.parsers.genome_parser import load_genome_annotations
 from codon_go.analysis.codon_usage import compute_relative_usage_by_aa
