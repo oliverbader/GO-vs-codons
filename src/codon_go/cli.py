@@ -16,7 +16,7 @@ from .parsers.genome_parser import load_genome_annotations, validate_cds_sequenc
 from .parsers.go_parser import load_go_ontology, parse_gaf_file, propagate_go_annotations
 from .analysis.codon_usage import (compute_relative_usage_by_aa, filter_wobble_codons,
                                    validate_cug_clade_usage, get_cug_clade_info)
-from .analysis.stats import adaptive_go_analysis, create_gene2go_dict
+from .analysis.stats import adaptive_go_analysis_by_codon, create_gene2go_dict
 from .viz.boxplots import create_batch_boxplots
 from .viz.heatmap import create_batch_heatmaps
 from .viz.pca_scatter import create_batch_pca_plots
@@ -297,7 +297,7 @@ def process_species(species_config: Dict,
         
         # Step 6: Perform adaptive GO analysis
         logger.info("Performing adaptive GO analysis")
-        adaptive_results = adaptive_go_analysis(
+        adaptive_results = adaptive_go_analysis_by_codon(
             df_rel=analysis_df,
             gene2go=gene2go_df,
             start_pct=adaptive_config['start_pct'],

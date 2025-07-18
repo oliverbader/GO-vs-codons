@@ -42,6 +42,29 @@ def create_adaptive_heatmap(
         logger.warning("No results data provided")
         return
     
+    # Check if this is codon-specific analysis
+    is_codon_analysis = 'codon' in results_df.columns
+    
+    if is_codon_analysis:
+        logger.info("Creating codon-specific heatmap")
+        # For codon analysis, create separate heatmaps for each codon
+        _create_codon_specific_heatmaps(results_df, output_path, title, figsize, format, max_terms)
+    else:
+        logger.info("Creating amino acid-level heatmap")
+        # Original amino acid-level analysis
+        _create_single_heatmap(results_df, output_path, title, figsize, format, max_terms)
+
+
+def _create_single_heatmap(
+    results_df: pd.DataFrame,
+    output_path: str,
+    title: Optional[str] = None,
+    figsize: tuple = (12, 8),
+    format: str = 'svg',
+    max_terms: int = 50
+) -> None:
+    """Create a single heatmap for amino acid-level analysis."""
+    
     # Filter to most significant terms
     if len(results_df['go_id'].unique()) > max_terms:
         top_terms = (results_df.groupby('go_id')['adj_p_value'].min()
@@ -98,6 +121,107 @@ def create_adaptive_heatmap(
     plt.close()
     
     logger.info(f"Saved adaptive heatmap to {output_path}")
+
+
+def _create_codon_specific_heatmaps(
+    results_df: pd.DataFrame,
+    output_path: str,
+    title: Optional[str] = None,
+    figsize: tuple = (12, 8),
+    format: str = 'svg',
+    max_terms: int = 50
+) -> None:
+    """Create separate heatmaps for each codon."""
+    
+    # Get unique codons
+    codons = sorted(results_df['codon'].unique())
+    
+    # Create a combined heatmap with codons as subplots
+    n_codons = len(codons)
+    cols = min(3, n_codons)
+    rows = (n_codons + cols - 1) // cols
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(figsize[0] * cols, figsize[1] * rows))
+    if n_codons == 1:
+        axes = [axes]
+    elif rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    for i, codon in enumerate(codons):
+        row = i // cols
+        col = i % cols
+        ax = axes[row, col] if rows > 1 else axes[col]
+        
+        # Filter data for this codon
+        codon_data = results_df[results_df['codon'] == codon].copy()
+        
+        if codon_data.empty:
+            ax.set_visible(False)
+            continue
+        
+        # Filter to most significant terms for this codon
+        if len(codon_data['go_id'].unique()) > max_terms:
+            top_terms = (codon_data.groupby('go_id')['adj_p_value'].min()
+                        .sort_values().head(max_terms).index)
+            codon_data = codon_data[codon_data['go_id'].isin(top_terms)]
+        
+        # Pivot data for heatmap
+        heatmap_data = codon_data.pivot_table(
+            index='go_id',
+            columns='threshold_pct',
+            values='adj_p_value',
+            fill_value=1.0
+        )
+        
+        if heatmap_data.empty:
+            ax.set_visible(False)
+            continue
+        
+        # Convert to -log10 scale
+        log_p_data = -np.log10(heatmap_data + 1e-10)
+        
+        # Create heatmap
+        sns.heatmap(
+            log_p_data,
+            annot=False,
+            cmap='viridis',
+            cbar=True,
+            ax=ax,
+            xticklabels=True,
+            yticklabels=True
+        )
+        
+        # Get amino acid for this codon
+        aa = codon_data['amino_acid'].iloc[0] if 'amino_acid' in codon_data.columns else 'Unknown'
+        
+        # Customize subplot
+        ax.set_title(f'{codon} ({aa})', fontsize=12, fontweight='bold')
+        ax.set_xlabel('Threshold (%)', fontsize=10)
+        ax.set_ylabel('GO Terms', fontsize=10)
+        ax.tick_params(axis='x', rotation=45, labelsize=8)
+        ax.tick_params(axis='y', rotation=0, labelsize=8)
+    
+    # Hide unused subplots
+    for i in range(n_codons, rows * cols):
+        if rows > 1:
+            axes[i // cols, i % cols].set_visible(False)
+        else:
+            axes[i].set_visible(False)
+    
+    # Overall title
+    if title:
+        fig.suptitle(title, fontsize=16, fontweight='bold')
+    else:
+        fig.suptitle('Codon-Specific GO Enrichment Analysis', fontsize=16, fontweight='bold')
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure
+    _save_figure(fig, output_path, format)
+    plt.close()
+    
+    logger.info(f"Saved codon-specific heatmaps to {output_path}")
 
 
 def create_codon_usage_heatmap(
