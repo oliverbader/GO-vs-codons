@@ -118,9 +118,15 @@ def validate_config(config: Dict[str, Any]) -> None:
         if not isinstance(wobble_aas, list):
             raise ValueError("wobble_aas must be a list")
         
-        valid_aas = set('ACDEFGHIKLMNPQRSTVWY')
+        # Valid amino acid codes (both single and three-letter)
+        valid_single_letter = set('ACDEFGHIKLMNPQRSTVWY')
+        valid_three_letter = {
+            'Ala', 'Arg', 'Asn', 'Asp', 'Cys', 'Gln', 'Glu', 'Gly', 'His', 'Ile',
+            'Leu', 'Lys', 'Met', 'Phe', 'Pro', 'Ser', 'Thr', 'Trp', 'Tyr', 'Val'
+        }
+        
         for aa in wobble_aas:
-            if aa not in valid_aas:
+            if aa not in valid_single_letter and aa not in valid_three_letter:
                 raise ValueError(f"Invalid amino acid code: {aa}")
     
     logger.info("Configuration validation passed")
