@@ -61,8 +61,8 @@ def _preprocess_gaf_file(gaf_file: str) -> str:
             fields = line.split('\t')
             max_fields = max(max_fields, len(fields))
             
-            # If we have more than 17 fields or trailing empty fields, preprocess
-            if len(fields) > 17 or (len(fields) > 15 and not fields[-1].strip()):
+            # If we have more than 17 fields, less than 16 fields, or trailing empty fields, preprocess
+            if len(fields) > 17 or len(fields) < 16 or (len(fields) > 16 and not fields[-1].strip()):
                 needs_preprocessing = True
                 break
             
@@ -87,13 +87,17 @@ def _preprocess_gaf_file(gaf_file: str) -> str:
                 
                 fields = line.rstrip('\n\r').split('\t')
                 
-                # Keep only the first 17 fields, removing trailing empty ones
+                # Keep only the first 17 fields
                 if len(fields) > 17:
                     fields = fields[:17]
                 
-                # Remove trailing empty fields
-                while len(fields) > 15 and not fields[-1].strip():
+                # Remove trailing empty fields, but ensure we have at least 16 fields for GAF 2.0
+                while len(fields) > 16 and not fields[-1].strip():
                     fields.pop()
+                
+                # Ensure we have exactly 17 fields (GAF 2.0 standard + one extra for safety)
+                while len(fields) < 17:
+                    fields.append('')
                 
                 temp_file.write('\t'.join(fields) + '\n')
         
@@ -177,7 +181,8 @@ def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
     
     with open(gaf_file, 'r') as f:
         for line_num, line in enumerate(f, 1):
-            line = line.strip()
+            # Only strip newlines, not tabs (to preserve trailing empty fields)
+            line = line.rstrip('\n\r')
             
             # Skip comments and empty lines
             if line.startswith('!') or not line:
@@ -185,7 +190,7 @@ def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
             
             fields = line.split('\t')
             
-            # GAF format has at least 15 fields, but may have more (including empty ones)
+            # GAF format requires at least 15 fields (GAF 1.0) or 16 fields (GAF 2.0)
             if len(fields) < 15:
                 logger.warning(f"Skipping line {line_num}: insufficient fields ({len(fields)} < 15)")
                 continue
