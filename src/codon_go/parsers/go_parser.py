@@ -36,6 +36,78 @@ def load_go_ontology(obo_file: str) -> obo_parser.GODag:
         raise
 
 
+def _preprocess_gaf_file(gaf_file: str) -> str:
+    """
+    Preprocess GAF file to handle extra empty columns.
+    
+    Args:
+        gaf_file: Path to original GAF file
+        
+    Returns:
+        Path to preprocessed GAF file (or original if no preprocessing needed)
+    """
+    import tempfile
+    import shutil
+    
+    # First, check if the file needs preprocessing
+    needs_preprocessing = False
+    max_fields = 0
+    
+    with open(gaf_file, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            if line.startswith('!') or not line.strip():
+                continue
+            
+            fields = line.split('\t')
+            max_fields = max(max_fields, len(fields))
+            
+            # If we have more than 17 fields or trailing empty fields, preprocess
+            if len(fields) > 17 or (len(fields) > 15 and not fields[-1].strip()):
+                needs_preprocessing = True
+                break
+            
+            # Only check first 100 data lines for performance
+            if line_num > 100:
+                break
+    
+    if not needs_preprocessing:
+        logger.debug(f"GAF file appears well-formatted ({max_fields} max fields), no preprocessing needed")
+        return gaf_file
+    
+    # Create preprocessed file
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.gaf', delete=False)
+    logger.info(f"Preprocessing GAF file to handle extra columns (max {max_fields} fields found)")
+    
+    try:
+        with open(gaf_file, 'r') as infile:
+            for line in infile:
+                if line.startswith('!') or not line.strip():
+                    temp_file.write(line)
+                    continue
+                
+                fields = line.rstrip('\n\r').split('\t')
+                
+                # Keep only the first 17 fields, removing trailing empty ones
+                if len(fields) > 17:
+                    fields = fields[:17]
+                
+                # Remove trailing empty fields
+                while len(fields) > 15 and not fields[-1].strip():
+                    fields.pop()
+                
+                temp_file.write('\t'.join(fields) + '\n')
+        
+        temp_file.close()
+        logger.info(f"Preprocessed GAF file saved to: {temp_file.name}")
+        return temp_file.name
+        
+    except Exception as e:
+        temp_file.close()
+        os.unlink(temp_file.name)
+        logger.warning(f"Failed to preprocess GAF file: {e}")
+        return gaf_file
+
+
 def parse_gaf_file(gaf_file: str) -> pd.DataFrame:
     """
     Parse GAF (Gene Association File) to extract gene-GO mappings.
@@ -51,9 +123,13 @@ def parse_gaf_file(gaf_file: str) -> pd.DataFrame:
     
     logger.info(f"Parsing GAF file: {gaf_file}")
     
+    # Preprocess the file to handle extra columns
+    processed_gaf_file = _preprocess_gaf_file(gaf_file)
+    cleanup_temp_file = processed_gaf_file != gaf_file
+    
     try:
         # Read GAF file using GOATOOLS
-        associations = read_gaf(gaf_file)
+        associations = read_gaf(processed_gaf_file)
         
         rows = []
         for gene_id, go_terms in associations.items():
@@ -66,13 +142,25 @@ def parse_gaf_file(gaf_file: str) -> pd.DataFrame:
                 })
         
         df = pd.DataFrame(rows)
-        logger.info(f"Parsed {len(df)} gene-GO associations for {df['gene_id'].nunique()} genes")
+        logger.info(f"Parsed {len(df)} gene-GO associations for {df['gene_id'].nunique()} genes using GOATOOLS")
         return df
         
-    except Exception as e:
-        logger.error(f"Error parsing GAF file: {e}")
-        # Fallback to manual parsing
+    except (IndexError, ValueError) as e:
+        logger.warning(f"GOATOOLS GAF parsing failed (likely due to extra columns): {e}")
+        logger.info("Falling back to manual GAF parsing...")
         return _parse_gaf_manual(gaf_file)
+    except Exception as e:
+        logger.error(f"Error parsing GAF file with GOATOOLS: {e}")
+        logger.info("Falling back to manual GAF parsing...")
+        return _parse_gaf_manual(gaf_file)
+    finally:
+        # Clean up temporary file if created
+        if cleanup_temp_file and os.path.exists(processed_gaf_file):
+            try:
+                os.unlink(processed_gaf_file)
+                logger.debug(f"Cleaned up temporary file: {processed_gaf_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file {processed_gaf_file}: {e}")
 
 
 def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
@@ -88,7 +176,7 @@ def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
     rows = []
     
     with open(gaf_file, 'r') as f:
-        for line in f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
             
             # Skip comments and empty lines
@@ -97,15 +185,27 @@ def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
             
             fields = line.split('\t')
             
-            # GAF format has at least 15 fields
+            # GAF format has at least 15 fields, but may have more (including empty ones)
             if len(fields) < 15:
+                logger.warning(f"Skipping line {line_num}: insufficient fields ({len(fields)} < 15)")
                 continue
             
             try:
-                gene_id = fields[1]  # DB_Object_ID
-                go_id = fields[4]    # GO_ID
-                evidence = fields[6] # Evidence_Code
-                aspect = fields[8]   # Aspect
+                # Extract required fields (0-indexed)
+                gene_id = fields[1].strip()   # DB_Object_ID
+                go_id = fields[4].strip()     # GO_ID
+                evidence = fields[6].strip()  # Evidence_Code
+                aspect = fields[8].strip()    # Aspect
+                
+                # Validate required fields are not empty
+                if not all([gene_id, go_id, evidence, aspect]):
+                    logger.warning(f"Skipping line {line_num}: empty required fields")
+                    continue
+                
+                # Validate GO ID format
+                if not go_id.startswith('GO:'):
+                    logger.warning(f"Skipping line {line_num}: invalid GO ID format: {go_id}")
+                    continue
                 
                 rows.append({
                     'gene_id': gene_id,
@@ -114,11 +214,15 @@ def _parse_gaf_manual(gaf_file: str) -> pd.DataFrame:
                     'aspect': aspect
                 })
                 
-            except IndexError:
+            except IndexError as e:
+                logger.warning(f"Skipping line {line_num}: IndexError: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Skipping line {line_num}: Error: {e}")
                 continue
     
     df = pd.DataFrame(rows)
-    logger.info(f"Manually parsed {len(df)} gene-GO associations")
+    logger.info(f"Manually parsed {len(df)} gene-GO associations for {df['gene_id'].nunique() if len(df) > 0 else 0} genes")
     return df
 
 
