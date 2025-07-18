@@ -242,13 +242,45 @@ def create_genetic_code_comparison(standard_df: pd.DataFrame,
     return pd.DataFrame(comparison_rows)
 
 
+def _convert_aa_codes_to_single_letter(wobble_aas: Set[str]) -> Set[str]:
+    """
+    Convert amino acid codes to single-letter format.
+    
+    Args:
+        wobble_aas: Set of amino acid codes (single or three-letter)
+        
+    Returns:
+        Set of single-letter amino acid codes
+    """
+    # Mapping from three-letter to single-letter codes
+    three_to_one = {
+        'Ala': 'A', 'Arg': 'R', 'Asn': 'N', 'Asp': 'D', 'Cys': 'C',
+        'Gln': 'Q', 'Glu': 'E', 'Gly': 'G', 'His': 'H', 'Ile': 'I',
+        'Leu': 'L', 'Lys': 'K', 'Met': 'M', 'Phe': 'F', 'Pro': 'P',
+        'Ser': 'S', 'Thr': 'T', 'Trp': 'W', 'Tyr': 'Y', 'Val': 'V'
+    }
+    
+    converted = set()
+    for aa in wobble_aas:
+        if len(aa) == 3 and aa in three_to_one:
+            # Three-letter code
+            converted.add(three_to_one[aa])
+        elif len(aa) == 1 and aa in three_to_one.values():
+            # Single-letter code
+            converted.add(aa)
+        else:
+            logger.warning(f"Unknown amino acid code: {aa}")
+    
+    return converted
+
+
 def filter_wobble_codons(df: pd.DataFrame, wobble_aas: Set[str]) -> pd.DataFrame:
     """
     Filter codon usage data to include only wobble-modified amino acids.
     
     Args:
         df: DataFrame with codon usage data
-        wobble_aas: Set of amino acids with wobble modifications
+        wobble_aas: Set of amino acids with wobble modifications (single or three-letter)
         
     Returns:
         Filtered DataFrame
@@ -256,7 +288,11 @@ def filter_wobble_codons(df: pd.DataFrame, wobble_aas: Set[str]) -> pd.DataFrame
     if not wobble_aas:
         return df
     
-    filtered_df = df[df['AA'].isin(wobble_aas)].copy()
+    # Convert wobble_aas to single-letter codes to match the AA column
+    single_letter_aas = _convert_aa_codes_to_single_letter(wobble_aas)
+    logger.debug(f"Converted wobble AAs to single-letter: {wobble_aas} -> {single_letter_aas}")
+    
+    filtered_df = df[df['AA'].isin(single_letter_aas)].copy()
     logger.info(f"Filtered to wobble AAs: {len(filtered_df)} observations for "
                 f"{filtered_df['AA'].nunique()} amino acids")
     

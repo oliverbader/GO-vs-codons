@@ -43,8 +43,11 @@ def adaptive_go_analysis(
     
     # Filter for wobble amino acids if specified
     if wobble_aas:
-        df_rel = df_rel[df_rel['AA'].isin(wobble_aas)].copy()
-        logger.info(f"Filtered to wobble AAs: {wobble_aas}")
+        # Import the conversion function from codon_usage module
+        from .codon_usage import _convert_aa_codes_to_single_letter
+        single_letter_aas = _convert_aa_codes_to_single_letter(wobble_aas)
+        df_rel = df_rel[df_rel['AA'].isin(single_letter_aas)].copy()
+        logger.info(f"Filtered to wobble AAs: {wobble_aas} -> {single_letter_aas}")
     
     # Create gene-GO mapping dictionary
     gene2go_dict = create_gene2go_dict(gene2go)
