@@ -153,6 +153,33 @@ def _extract_all_gene_ids(feature: SeqFeature) -> Dict[str, str]:
     return ids
 
 
+def create_gene_id_mapping(records: Dict[str, SeqRecord]) -> Dict[str, str]:
+    """
+    Create a mapping from genome gene IDs to GAF-compatible IDs.
+    
+    This function analyzes all gene IDs in the genome records and attempts
+    to create a mapping to GAF file compatible IDs.
+    
+    Args:
+        records: Dictionary of gene_id → SeqRecord from genome files
+        
+    Returns:
+        Dictionary mapping genome_gene_id → gaf_gene_id
+    """
+    logger.info("Creating gene ID mapping for GAF compatibility")
+    
+    # For now, return identity mapping - this can be enhanced based on
+    # the specific ID formats found in the files
+    mapping = {gene_id: gene_id for gene_id in records.keys()}
+    
+    # Log some examples for debugging
+    sample_ids = list(records.keys())[:5]
+    logger.info(f"Sample genome gene IDs: {sample_ids}")
+    logger.info(f"Gene ID mapping created for {len(mapping)} genes")
+    
+    return mapping
+
+
 def validate_cds_sequences(records: Dict[str, SeqRecord]) -> Dict[str, SeqRecord]:
     """
     Validate CDS sequences for proper length and start/stop codons.
