@@ -57,6 +57,7 @@ def adaptive_go_analysis_by_codon(
     logger.info(f"Analyzing {len(unique_codons)} individual codons: {sorted(unique_codons)}")
     
     results = []
+    diagnostic_data = []  # Store diagnostic information for each codon/threshold combination
     
     # Analyze each codon separately
     for codon in sorted(unique_codons):
@@ -78,6 +79,33 @@ def adaptive_go_analysis_by_codon(
             high_usage_genes = codon_data[codon_data['rel_usage'] >= threshold]['gene_id'].unique()
             logger.info(f"  Found {len(high_usage_genes)} genes above threshold for {codon}")
             
+            # Count genes with GO annotations
+            genes_with_go = sum(1 for gene_id in high_usage_genes if gene_id in gene2go_dict)
+            
+            # Get all GO terms for these genes
+            go_terms = set()
+            for gene_id in high_usage_genes:
+                if gene_id in gene2go_dict:
+                    go_terms.update(gene2go_dict[gene_id])
+            
+            # Store diagnostic information
+            diagnostic_info = {
+                'codon': codon,
+                'amino_acid': aa,
+                'round': round_num + 1,
+                'threshold_pct': threshold * 100,
+                'threshold': threshold,
+                'total_genes_above_threshold': len(high_usage_genes),
+                'genes_with_go_annotations': genes_with_go,
+                'unique_go_terms': len(go_terms),
+                'min_genes_required': min_genes,
+                'passed_min_genes_filter': len(high_usage_genes) >= min_genes
+            }
+            diagnostic_data.append(diagnostic_info)
+            
+            logger.info(f"    Genes with GO annotations: {genes_with_go}/{len(high_usage_genes)}")
+            logger.info(f"    Unique GO terms available: {len(go_terms)}")
+            
             if len(high_usage_genes) < min_genes:
                 logger.debug(f"  Too few genes ({len(high_usage_genes)}) above threshold for {codon}, skipping")
                 continue
@@ -85,7 +113,7 @@ def adaptive_go_analysis_by_codon(
             # Test each GO term for this codon
             go_results = _test_go_terms_for_codon(
                 codon_data, gene2go_dict, high_usage_genes, 
-                threshold, test_method, min_genes, codon, aa
+                threshold, test_method, min_genes, codon, aa, go_terms
             )
             
             # Add round and codon information
@@ -114,7 +142,12 @@ def adaptive_go_analysis_by_codon(
     results_df = results_df.sort_values(['codon', 'adj_p_value'])
     
     logger.info(f"Completed adaptive codon analysis: {len(results_df)} total tests across {len(unique_codons)} codons")
-    return results_df
+    
+    # Create diagnostic DataFrame and return both
+    diagnostic_df = pd.DataFrame(diagnostic_data)
+    logger.info(f"Generated diagnostic data for {len(diagnostic_df)} codon/threshold combinations")
+    
+    return results_df, diagnostic_df
 
 
 def adaptive_go_analysis(
@@ -212,7 +245,8 @@ def _test_go_terms_for_codon(
     test_method: str,
     min_genes: int,
     codon: str,
-    aa: str
+    aa: str,
+    go_terms: Set[str]
 ) -> List[Dict]:
     """
     Test GO terms for enrichment in high-usage genes for a specific codon.
@@ -232,16 +266,8 @@ def _test_go_terms_for_codon(
     """
     results = []
     
-    # Get all GO terms associated with high-usage genes
-    go_terms = set()
-    genes_with_go = 0
-    for gene_id in high_usage_genes:
-        if gene_id in gene2go_dict:
-            go_terms.update(gene2go_dict[gene_id])
-            genes_with_go += 1
-    
-    logger.info(f"  High-usage genes: {len(high_usage_genes)}, with GO annotations: {genes_with_go}")
-    logger.info(f"  Testing {len(go_terms)} GO terms for codon {codon}")
+    # GO terms are already provided from the main function
+    logger.debug(f"  Testing {len(go_terms)} GO terms for codon {codon}")
     
     if len(go_terms) == 0:
         logger.warning(f"  No GO terms found for high-usage genes of codon {codon}")
