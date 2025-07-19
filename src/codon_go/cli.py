@@ -297,7 +297,7 @@ def process_species(species_config: Dict,
         
         # Step 6: Perform adaptive GO analysis
         logger.info("Performing adaptive GO analysis")
-        adaptive_results = adaptive_go_analysis_by_codon(
+        adaptive_results, diagnostic_data = adaptive_go_analysis_by_codon(
             df_rel=analysis_df,
             gene2go=gene2go_df,
             start_pct=adaptive_config['start_pct'],
@@ -306,44 +306,171 @@ def process_species(species_config: Dict,
             wobble_aas=wobble_aas
         )
         
+        # Always save diagnostic data (even if no significant results)
+        diagnostic_path = os.path.join(processed_dir, f'{species_code}_diagnostic.tsv')
+        save_dataframe(diagnostic_data, diagnostic_path)
+        logger.info(f"Saved diagnostic data: {len(diagnostic_data)} codon/threshold combinations")
+        
+        # Create and save summary table
+        summary_data = _create_summary_table(diagnostic_data)
+        summary_path = os.path.join(processed_dir, f'{species_code}_summary.tsv')
+        save_dataframe(summary_data, summary_path)
+        logger.info(f"Saved summary table: {len(summary_data)} rows")
+        
         if not adaptive_results.empty:
             # Save adaptive results
             adaptive_path = os.path.join(processed_dir, f'{species_code}_adaptive.tsv')
             save_dataframe(adaptive_results, adaptive_path)
-            
-            # Step 7: Create visualizations
-            logger.info("Creating visualizations")
-            
-            # Boxplots
+            logger.info(f"Saved {len(adaptive_results)} significant GO enrichment results")
+        else:
+            logger.warning("No significant results from adaptive analysis")
+        
+        # Step 7: Create visualizations (always create, even with empty results)
+        logger.info("Creating visualizations")
+        
+        try:
+            # Boxplots - show codon usage patterns
             create_batch_boxplots(
                 df=analysis_df,
                 output_dir=figures_dir,
                 format=figure_format
             )
-            
-            # Heatmaps
-            create_batch_heatmaps(
-                results_df=adaptive_results,
-                output_dir=figures_dir,
-                format=figure_format
-            )
-            
-            # PCA plots
+            logger.info("Created boxplots")
+        except Exception as e:
+            logger.error(f"Error creating boxplots: {e}")
+        
+        try:
+            # Heatmaps - show results or diagnostic data
+            if not adaptive_results.empty:
+                create_batch_heatmaps(
+                    results_df=adaptive_results,
+                    output_dir=figures_dir,
+                    format=figure_format
+                )
+                logger.info("Created heatmaps with significant results")
+            else:
+                # Create diagnostic heatmap showing gene counts
+                _create_diagnostic_heatmap(
+                    diagnostic_data,
+                    output_dir=figures_dir,
+                    species_code=species_code,
+                    format=figure_format
+                )
+                logger.info("Created diagnostic heatmap showing gene counts")
+        except Exception as e:
+            logger.error(f"Error creating heatmaps: {e}")
+        
+        try:
+            # PCA plots - show codon usage patterns
             create_batch_pca_plots(
                 df=analysis_df,
                 output_dir=figures_dir,
                 format=figure_format
             )
-            
-            logger.info("Visualizations created successfully")
-        else:
-            logger.warning("No significant results from adaptive analysis")
+            logger.info("Created PCA plots")
+        except Exception as e:
+            logger.error(f"Error creating PCA plots: {e}")
+        
+        logger.info("Visualization creation completed")
         
         return True
         
     except Exception as e:
         logger.error(f"Error processing species {species_code}: {e}")
         return False
+
+
+def _create_summary_table(diagnostic_data: pd.DataFrame) -> pd.DataFrame:
+    """Create a summary table from diagnostic data."""
+    if diagnostic_data.empty:
+        return pd.DataFrame()
+    
+    # Group by codon and calculate summary statistics
+    summary = diagnostic_data.groupby('codon').agg({
+        'amino_acid': 'first',
+        'total_genes_above_threshold': ['min', 'max', 'mean'],
+        'genes_with_go_annotations': ['min', 'max', 'mean', 'sum'],
+        'unique_go_terms': ['min', 'max', 'mean'],
+        'passed_min_genes_filter': 'sum'
+    }).round(2)
+    
+    # Flatten column names
+    summary.columns = [f'{col[0]}_{col[1]}' if col[1] else col[0] for col in summary.columns]
+    summary = summary.reset_index()
+    
+    # Add percentage of rounds that passed filter
+    total_rounds = diagnostic_data['round'].nunique()
+    summary['pct_rounds_passed'] = (summary['passed_min_genes_filter_sum'] / total_rounds * 100).round(1)
+    
+    return summary
+
+
+def _create_diagnostic_heatmap(
+    diagnostic_data: pd.DataFrame,
+    output_dir: str,
+    species_code: str,
+    format: str = 'svg'
+) -> None:
+    """Create diagnostic heatmap showing gene counts and GO term availability."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    
+    if diagnostic_data.empty:
+        logger.warning("No diagnostic data to visualize")
+        return
+    
+    # Create figure with subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # Heatmap 1: Genes above threshold
+    pivot1 = diagnostic_data.pivot_table(
+        index='codon',
+        columns='threshold_pct',
+        values='total_genes_above_threshold',
+        fill_value=0
+    )
+    
+    sns.heatmap(
+        pivot1,
+        annot=True,
+        fmt='d',
+        cmap='Blues',
+        cbar_kws={'label': 'Number of genes'},
+        ax=ax1
+    )
+    ax1.set_title(f'{species_code}: Genes Above Threshold by Codon')
+    ax1.set_xlabel('Threshold (%)')
+    ax1.set_ylabel('Codon')
+    
+    # Heatmap 2: Genes with GO annotations
+    pivot2 = diagnostic_data.pivot_table(
+        index='codon',
+        columns='threshold_pct',
+        values='genes_with_go_annotations',
+        fill_value=0
+    )
+    
+    sns.heatmap(
+        pivot2,
+        annot=True,
+        fmt='d',
+        cmap='Reds',
+        cbar_kws={'label': 'Number of genes with GO'},
+        ax=ax2
+    )
+    ax2.set_title(f'{species_code}: Genes with GO Annotations by Codon')
+    ax2.set_xlabel('Threshold (%)')
+    ax2.set_ylabel('Codon')
+    
+    plt.tight_layout()
+    
+    # Save figure
+    output_path = os.path.join(output_dir, f'{species_code}_diagnostic_heatmap.{format}')
+    plt.savefig(output_path, format=format, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"Saved diagnostic heatmap: {output_path}")
 
 
 def _create_cli_config(genome_dir: Optional[str],
