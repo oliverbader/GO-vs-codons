@@ -95,7 +95,7 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
     1. locus_tag
     2. gene
     3. protein_id
-    4. db_xref (for systematic names)
+    4. db_xref (for systematic names, including CGD)
     
     Args:
         feature: Bio.SeqFeature.SeqFeature object
@@ -110,13 +110,47 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
         if field in feature.qualifiers:
             return feature.qualifiers[field][0]
     
-    # Check db_xref for systematic names
+    # Check db_xref for systematic names (including CGD format)
     if 'db_xref' in feature.qualifiers:
         for xref in feature.qualifiers['db_xref']:
             if xref.startswith('GeneID:'):
                 return xref.split(':')[1]
+            elif xref.startswith('CGD:'):
+                return xref.split(':')[1]
+            elif xref.startswith('CAL'):  # Direct CGD systematic ID
+                return xref
     
     return None
+
+
+def _extract_all_gene_ids(feature: SeqFeature) -> Dict[str, str]:
+    """
+    Extract all possible gene IDs from a CDS feature for mapping purposes.
+    
+    Args:
+        feature: Bio.SeqFeature.SeqFeature object
+        
+    Returns:
+        Dictionary mapping ID type to ID value
+    """
+    ids = {}
+    
+    # Extract standard qualifiers
+    id_fields = ['locus_tag', 'gene', 'protein_id']
+    for field in id_fields:
+        if field in feature.qualifiers:
+            ids[field] = feature.qualifiers[field][0]
+    
+    # Extract db_xref entries
+    if 'db_xref' in feature.qualifiers:
+        for xref in feature.qualifiers['db_xref']:
+            if ':' in xref:
+                db_name, db_id = xref.split(':', 1)
+                ids[f'db_xref_{db_name}'] = db_id
+            else:
+                ids['db_xref_other'] = xref
+    
+    return ids
 
 
 def validate_cds_sequences(records: Dict[str, SeqRecord]) -> Dict[str, SeqRecord]:

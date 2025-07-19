@@ -247,14 +247,20 @@ def _test_go_terms_for_codon(
         logger.warning(f"  No GO terms found for high-usage genes of codon {codon}")
         if len(high_usage_genes) > 0:
             sample_genes = list(high_usage_genes)[:5]
-            logger.debug(f"  Sample high-usage genes: {sample_genes}")
-            logger.debug(f"  Total genes in gene2go_dict: {len(gene2go_dict)}")
+            logger.warning(f"  Sample high-usage genes: {sample_genes}")
+            logger.warning(f"  Total genes in gene2go_dict: {len(gene2go_dict)}")
+            
+            # Show sample gene IDs from gene2go_dict for comparison
+            if len(gene2go_dict) > 0:
+                sample_go_genes = list(gene2go_dict.keys())[:5]
+                logger.warning(f"  Sample gene IDs from GAF file: {sample_go_genes}")
+            
             # Check if any of the sample genes are in the dictionary
             for gene in sample_genes:
                 if gene in gene2go_dict:
-                    logger.debug(f"    {gene}: {len(gene2go_dict[gene])} GO terms")
+                    logger.warning(f"    {gene}: {len(gene2go_dict[gene])} GO terms")
                 else:
-                    logger.debug(f"    {gene}: NOT FOUND in gene2go_dict")
+                    logger.warning(f"    {gene}: NOT FOUND in gene2go_dict")
     
     for go_id in go_terms:
         # Get genes associated with this GO term
