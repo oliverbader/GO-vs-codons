@@ -21,11 +21,7 @@ from .viz.boxplots import create_batch_boxplots
 from .viz.heatmap import create_batch_heatmaps
 from .viz.pca_scatter import create_batch_pca_plots
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging (will be enhanced in main functions)
 logger = logging.getLogger(__name__)
 
 
@@ -108,11 +104,30 @@ def main(config: Optional[str],
     A modular Python pipeline for analyzing codon usage and GO term enrichment
     in eukaryotic genomes, with support for CUG-clade fungi.
     """
-    # Configure logging level and warnings
-    if verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    elif quiet:
-        logging.getLogger().setLevel(logging.ERROR)
+    # Load configuration first to get output directory
+    try:
+        if config:
+            config_data = load_config(config)
+        else:
+            logger.warning("No configuration file provided, using CLI options only")
+            config_data = _create_cli_config(
+                genome_dir, go_obo, go_gaf, adaptive_start, 
+                adaptive_step, adaptive_rounds, wobble_only, cug_clade, outdir
+            )
+        
+        # Set up logging to file
+        output_dir = config_data.get('output_dir', 'results')
+        log_file = os.path.join(output_dir, 'codon_go_analysis.log')
+        _setup_logging(log_file, verbose)
+        
+    except Exception as e:
+        # If config loading fails, set up basic console logging
+        logging.basicConfig(
+            level=logging.DEBUG if verbose else logging.ERROR if quiet else logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        logger.error(f"Failed to load configuration: {e}")
+        return
     
     # Configure warnings based on verbosity
     configure_warnings(verbose=verbose)
@@ -127,16 +142,9 @@ def main(config: Optional[str],
             logger.info(f"  {codon}: {info['standard']} (standard) → {info['cug_clade']} (CUG-clade)")
     
     try:
-        # Load and validate configuration
+        # Expand paths for file-based config
         if config:
-            config_data = load_config(config)
             config_data = expand_paths(config_data, os.path.dirname(config))
-        else:
-            # Create minimal config from command line options
-            config_data = _create_cli_config(
-                genome_dir, go_obo, go_gaf, adaptive_start, 
-                adaptive_step, adaptive_rounds, wobble_only, cug_clade, outdir
-            )
         
         # Override config with command line options
         config_data = _override_config(
@@ -378,6 +386,38 @@ def process_species(species_config: Dict,
     except Exception as e:
         logger.error(f"Error processing species {species_code}: {e}")
         return False
+
+
+def _setup_logging(log_file: str, verbose: bool = False) -> None:
+    """Set up logging to both console and file."""
+    
+    # Clear any existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    
+    # Set log level
+    log_level = logging.DEBUG if verbose else logging.INFO
+    root_logger.setLevel(log_level)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    # File handler
+    ensure_directory(os.path.dirname(log_file))
+    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+    
+    logger.info(f"Logging configured - console and file: {log_file}")
 
 
 def _create_summary_table(diagnostic_data: pd.DataFrame) -> pd.DataFrame:

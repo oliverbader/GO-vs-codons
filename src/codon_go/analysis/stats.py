@@ -124,9 +124,13 @@ def adaptive_go_analysis_by_codon(
                 result['amino_acid'] = aa
                 results.append(result)
     
+    # Always create diagnostic DataFrame (even if no results)
+    diagnostic_df = pd.DataFrame(diagnostic_data)
+    logger.info(f"Generated diagnostic data for {len(diagnostic_df)} codon/threshold combinations")
+    
     if not results:
         logger.warning("No results generated from adaptive codon analysis")
-        return pd.DataFrame()
+        return pd.DataFrame(), diagnostic_df
     
     # Convert to DataFrame and adjust p-values
     results_df = pd.DataFrame(results)
@@ -142,10 +146,6 @@ def adaptive_go_analysis_by_codon(
     results_df = results_df.sort_values(['codon', 'adj_p_value'])
     
     logger.info(f"Completed adaptive codon analysis: {len(results_df)} total tests across {len(unique_codons)} codons")
-    
-    # Create diagnostic DataFrame and return both
-    diagnostic_df = pd.DataFrame(diagnostic_data)
-    logger.info(f"Generated diagnostic data for {len(diagnostic_df)} codon/threshold combinations")
     
     return results_df, diagnostic_df
 
