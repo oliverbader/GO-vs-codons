@@ -40,16 +40,16 @@ logger = logging.getLogger(__name__)
               help='GO annotations (.gaf)')
 @click.option('--adaptive-start', 
               type=click.IntRange(1, 100),
-              default=75,
-              help='Starting relative-usage threshold (%)')
+              default=None,
+              help='Starting relative-usage threshold (%) - overrides config')
 @click.option('--adaptive-step', 
               type=click.IntRange(1, 100),
-              default=10,
-              help='Threshold decrement per round (%)')
+              default=None,
+              help='Threshold decrement per round (%) - overrides config')
 @click.option('--adaptive-rounds', 
               type=click.IntRange(1, 20),
-              default=3,
-              help='Number of adaptive iterations')
+              default=None,
+              help='Number of adaptive iterations - overrides config')
 @click.option('--wobble-only', 
               is_flag=True,
               help='Restrict analysis to wobble-modified AAs')
@@ -85,9 +85,9 @@ def main(config: Optional[str],
          genome_dir: Optional[str],
          go_obo: Optional[str],
          go_gaf: Optional[str],
-         adaptive_start: int,
-         adaptive_step: int,
-         adaptive_rounds: int,
+         adaptive_start: Optional[int],
+         adaptive_step: Optional[int],
+         adaptive_rounds: Optional[int],
          wobble_only: bool,
          wobble_list: Optional[str],
          cug_clade: bool,
@@ -564,9 +564,9 @@ def _create_diagnostic_heatmap(
 def _create_cli_config(genome_dir: Optional[str],
                       go_obo: Optional[str],
                       go_gaf: Optional[str],
-                      adaptive_start: int,
-                      adaptive_step: int,
-                      adaptive_rounds: int,
+                      adaptive_start: Optional[int],
+                      adaptive_step: Optional[int],
+                      adaptive_rounds: Optional[int],
                       wobble_only: bool,
                       cug_clade: bool,
                       outdir: Optional[str]) -> Dict:
@@ -584,9 +584,9 @@ def _create_cli_config(genome_dir: Optional[str],
         }],
         'go_obo': go_obo,
         'adaptive': {
-            'start_pct': adaptive_start,
-            'step_pct': adaptive_step,
-            'rounds': adaptive_rounds
+            'start_pct': adaptive_start if adaptive_start is not None else 95,
+            'step_pct': adaptive_step if adaptive_step is not None else 5,
+            'rounds': adaptive_rounds if adaptive_rounds is not None else 7
         },
         'wobble_only': wobble_only,
         'output_dir': outdir or 'results'
@@ -599,9 +599,9 @@ def _override_config(config: Dict,
                     genome_dir: Optional[str],
                     go_obo: Optional[str],
                     go_gaf: Optional[str],
-                    adaptive_start: int,
-                    adaptive_step: int,
-                    adaptive_rounds: int,
+                    adaptive_start: Optional[int],
+                    adaptive_step: Optional[int],
+                    adaptive_rounds: Optional[int],
                     wobble_only: bool,
                     cug_clade: bool,
                     outdir: Optional[str]) -> Dict:
@@ -612,10 +612,13 @@ def _override_config(config: Dict,
     if go_obo:
         config['go_obo'] = go_obo
     
-    # Override adaptive settings
-    config['adaptive']['start_pct'] = adaptive_start
-    config['adaptive']['step_pct'] = adaptive_step
-    config['adaptive']['rounds'] = adaptive_rounds
+    # Override adaptive settings only if provided
+    if adaptive_start is not None:
+        config['adaptive']['start_pct'] = adaptive_start
+    if adaptive_step is not None:
+        config['adaptive']['step_pct'] = adaptive_step
+    if adaptive_rounds is not None:
+        config['adaptive']['rounds'] = adaptive_rounds
     
     if wobble_only:
         config['wobble_only'] = True
