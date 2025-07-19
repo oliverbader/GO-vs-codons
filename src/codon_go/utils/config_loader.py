@@ -159,8 +159,8 @@ def get_default_config() -> Dict[str, Any]:
         'go_obo': 'data/go/go.obo',
         'adaptive': {
             'start_pct': 95,
-            'step_pct': 10,
-            'rounds': 3
+            'step_pct': 5,
+            'rounds': 7
         },
         'wobble_only': False,
         'wobble_aas': ['Leu', 'Lys', 'Gln', 'Glu', 'Phe', 'Trp', 'Ser'],
