@@ -341,6 +341,7 @@ def process_species(species_config: Dict,
             create_batch_boxplots(
                 df=analysis_df,
                 output_dir=figures_dir,
+                species_name=species_name,
                 format=figure_format
             )
             logger.info("Created boxplots")
