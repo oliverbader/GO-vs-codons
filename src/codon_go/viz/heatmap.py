@@ -23,7 +23,8 @@ def create_adaptive_heatmap(
     title: Optional[str] = None,
     figsize: tuple = (12, 8),
     format: str = 'svg',
-    max_terms: int = 50
+    max_terms: int = 50,
+    diagnostic_df: Optional[pd.DataFrame] = None
 ) -> None:
     """
     Create heatmap of -log10(adj_p) vs thresholds for adaptive GO analysis.
@@ -48,7 +49,7 @@ def create_adaptive_heatmap(
     if is_codon_analysis:
         logger.info("Creating codon-specific heatmap")
         # For codon analysis, create separate heatmaps for each codon
-        _create_codon_specific_heatmaps(results_df, output_path, title, figsize, format, max_terms)
+        _create_codon_specific_heatmaps(results_df, output_path, title, figsize, format, max_terms, diagnostic_df)
     else:
         logger.info("Creating amino acid-level heatmap")
         # Original amino acid-level analysis
@@ -129,12 +130,67 @@ def _create_codon_specific_heatmaps(
     title: Optional[str] = None,
     figsize: tuple = (12, 8),
     format: str = 'svg',
-    max_terms: int = 50
+    max_terms: int = 50,
+    diagnostic_df: Optional[pd.DataFrame] = None
 ) -> None:
-    """Create separate heatmaps for each codon."""
+    """Create separate heatmaps for each codon with consistent scaling and dimensions."""
+    from ..analysis.codon_usage import get_amino_acid_name
     
-    # Get unique codons
+    # Get unique codons and thresholds for consistent dimensions
     codons = sorted(results_df['codon'].unique())
+    all_thresholds = sorted(results_df['threshold_pct'].unique())
+    
+    # Get all unique GO terms across all codons for consistent row dimensions
+    all_go_terms = list(results_df['go_id'].unique())
+    if len(all_go_terms) > max_terms:
+        # Get the most significant terms globally
+        top_terms = (results_df.groupby('go_id')['adj_p_value'].min()
+                    .sort_values().head(max_terms).index.tolist())
+        all_go_terms = top_terms
+    
+    # Get global min/max for consistent color scaling
+    global_min_log_p = float('inf')
+    global_max_log_p = 0
+    
+    # Pre-calculate log p-values for all codons to get global scaling
+    codon_heatmap_data = {}
+    for codon in codons:
+        codon_data = results_df[results_df['codon'] == codon].copy()
+        if not codon_data.empty:
+            # Filter to selected GO terms
+            codon_data = codon_data[codon_data['go_id'].isin(all_go_terms)]
+            
+            if not codon_data.empty:
+                # Pivot data for heatmap
+                heatmap_data = codon_data.pivot_table(
+                    index='go_id',
+                    columns='threshold_pct',
+                    values='adj_p_value',
+                    fill_value=1.0
+                )
+                
+                # Ensure consistent dimensions
+                heatmap_data = heatmap_data.reindex(
+                    index=all_go_terms, 
+                    columns=all_thresholds, 
+                    fill_value=1.0
+                )
+                
+                # Convert to -log10 scale
+                log_p_data = -np.log10(heatmap_data + 1e-10)
+                codon_heatmap_data[codon] = log_p_data
+                
+                # Update global min/max
+                valid_values = log_p_data[log_p_data > 0]
+                if len(valid_values) > 0:
+                    global_min_log_p = min(global_min_log_p, valid_values.min().min())
+                    global_max_log_p = max(global_max_log_p, valid_values.max().max())
+    
+    # Set reasonable defaults if no valid data
+    if global_min_log_p == float('inf'):
+        global_min_log_p = 0
+    if global_max_log_p == 0:
+        global_max_log_p = 5
     
     # Create a combined heatmap with codons as subplots
     n_codons = len(codons)
@@ -152,52 +208,68 @@ def _create_codon_specific_heatmaps(
         col = i % cols
         ax = axes[row, col] if rows > 1 else axes[col]
         
-        # Filter data for this codon
-        codon_data = results_df[results_df['codon'] == codon].copy()
-        
-        if codon_data.empty:
-            ax.set_visible(False)
-            continue
-        
-        # Filter to most significant terms for this codon
-        if len(codon_data['go_id'].unique()) > max_terms:
-            top_terms = (codon_data.groupby('go_id')['adj_p_value'].min()
-                        .sort_values().head(max_terms).index)
-            codon_data = codon_data[codon_data['go_id'].isin(top_terms)]
-        
-        # Pivot data for heatmap
-        heatmap_data = codon_data.pivot_table(
-            index='go_id',
-            columns='threshold_pct',
-            values='adj_p_value',
-            fill_value=1.0
-        )
-        
-        if heatmap_data.empty:
-            ax.set_visible(False)
-            continue
-        
-        # Convert to -log10 scale
-        log_p_data = -np.log10(heatmap_data + 1e-10)
-        
-        # Create heatmap
-        sns.heatmap(
-            log_p_data,
-            annot=False,
-            cmap='viridis',
-            cbar=True,
-            ax=ax,
-            xticklabels=True,
-            yticklabels=True
-        )
-        
-        # Get amino acid for this codon
-        aa = codon_data['amino_acid'].iloc[0] if 'amino_acid' in codon_data.columns else 'Unknown'
-        
-        # Customize subplot
-        ax.set_title(f'{codon} ({aa})', fontsize=12, fontweight='bold')
-        ax.set_xlabel('Threshold (%)', fontsize=10)
-        ax.set_ylabel('GO Terms', fontsize=10)
+        if codon in codon_heatmap_data:
+            log_p_data = codon_heatmap_data[codon]
+            
+            # Create heatmap with consistent scaling
+            sns.heatmap(
+                log_p_data,
+                annot=False,
+                cmap='viridis',
+                vmin=global_min_log_p,
+                vmax=global_max_log_p,
+                cbar=True,
+                ax=ax,
+                xticklabels=True,
+                yticklabels=True
+            )
+            
+            # Get amino acid for this codon and convert to three-letter name
+            codon_data = results_df[results_df['codon'] == codon]
+            if not codon_data.empty and 'amino_acid' in codon_data.columns:
+                aa = codon_data['amino_acid'].iloc[0]
+                aa_name = get_amino_acid_name(aa)
+                title_text = f'{codon} ({aa_name})'
+            else:
+                title_text = f'{codon}'
+            
+            # Add gene count information above the plot from diagnostic data
+            if diagnostic_df is not None:
+                codon_diagnostic = diagnostic_df[diagnostic_df['codon'] == codon]
+                for j, threshold in enumerate(all_thresholds):
+                    matching_diag = codon_diagnostic[codon_diagnostic['threshold_pct'] == threshold]
+                    if not matching_diag.empty:
+                        count = matching_diag['total_genes_above_threshold'].iloc[0]
+                        ax.text(j + 0.5, -0.5, f'N={count}', ha='center', va='bottom', 
+                               fontsize=8, fontweight='bold')
+            
+            # Customize subplot
+            ax.set_title(title_text, fontsize=12, fontweight='bold')
+            ax.set_xlabel('Threshold (%)', fontsize=10)
+            ax.set_ylabel('GO Terms', fontsize=10)
+        else:
+            # No data for this codon - create empty heatmap with consistent dimensions
+            empty_data = pd.DataFrame(
+                0, 
+                index=all_go_terms, 
+                columns=all_thresholds
+            )
+            
+            sns.heatmap(
+                empty_data,
+                annot=False,
+                cmap='viridis',
+                vmin=global_min_log_p,
+                vmax=global_max_log_p,
+                cbar=True,
+                ax=ax,
+                xticklabels=True,
+                yticklabels=True
+            )
+            
+            ax.set_title(f'{codon} (No Data)', fontsize=12, fontweight='bold')
+            ax.set_xlabel('Threshold (%)', fontsize=10)
+            ax.set_ylabel('GO Terms', fontsize=10)
         ax.tick_params(axis='x', rotation=45, labelsize=8)
         ax.tick_params(axis='y', rotation=0, labelsize=8)
     
@@ -648,7 +720,8 @@ def _save_figure(fig, output_path: str, format: str) -> None:
 def create_batch_heatmaps(
     results_df: pd.DataFrame,
     output_dir: str,
-    format: str = 'svg'
+    format: str = 'svg',
+    diagnostic_df: Optional[pd.DataFrame] = None
 ) -> None:
     """
     Create multiple heatmaps for different aspects of the analysis.
@@ -657,12 +730,13 @@ def create_batch_heatmaps(
         results_df: DataFrame with analysis results
         output_dir: Output directory
         format: Output format
+        diagnostic_df: Optional diagnostic data for gene counts
     """
     logger.info("Creating batch heatmaps")
     
     # Adaptive analysis heatmap
     adaptive_path = os.path.join(output_dir, f'heatmap_adaptive.{format}')
-    create_adaptive_heatmap(results_df, adaptive_path, format=format)
+    create_adaptive_heatmap(results_df, adaptive_path, format=format, diagnostic_df=diagnostic_df)
     
     # Threshold comparison heatmaps
     for metric in ['adj_p_value', 'n_genes']:

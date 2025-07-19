@@ -274,6 +274,27 @@ def _convert_aa_codes_to_single_letter(wobble_aas: Set[str]) -> Set[str]:
     return converted
 
 
+def get_amino_acid_name(single_letter_code: str) -> str:
+    """
+    Convert single-letter amino acid code to three-letter name.
+    
+    Args:
+        single_letter_code: Single letter amino acid code (e.g., 'A')
+        
+    Returns:
+        Three-letter amino acid name (e.g., 'Ala')
+    """
+    # Mapping from single-letter to three-letter codes
+    one_to_three = {
+        'A': 'Ala', 'R': 'Arg', 'N': 'Asn', 'D': 'Asp', 'C': 'Cys',
+        'Q': 'Gln', 'E': 'Glu', 'G': 'Gly', 'H': 'His', 'I': 'Ile',
+        'L': 'Leu', 'K': 'Lys', 'M': 'Met', 'F': 'Phe', 'P': 'Pro',
+        'S': 'Ser', 'T': 'Thr', 'W': 'Trp', 'Y': 'Tyr', 'V': 'Val'
+    }
+    
+    return one_to_three.get(single_letter_code, single_letter_code)
+
+
 def filter_wobble_codons(df: pd.DataFrame, wobble_aas: Set[str]) -> pd.DataFrame:
     """
     Filter codon usage data to include only wobble-modified amino acids.

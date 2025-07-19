@@ -353,7 +353,8 @@ def process_species(species_config: Dict,
                 create_batch_heatmaps(
                     results_df=adaptive_results,
                     output_dir=figures_dir,
-                    format=figure_format
+                    format=figure_format,
+                    diagnostic_df=diagnostic_data
                 )
                 logger.info("Created heatmaps with significant results")
             else:
@@ -455,13 +456,18 @@ def _create_diagnostic_heatmap(
     import matplotlib.pyplot as plt
     import seaborn as sns
     import numpy as np
+    from ..analysis.codon_usage import get_amino_acid_name
     
     if diagnostic_data.empty:
         logger.warning("No diagnostic data to visualize")
         return
     
+    # Get all possible codons and thresholds for consistent dimensions
+    all_codons = sorted(diagnostic_data['codon'].unique())
+    all_thresholds = sorted(diagnostic_data['threshold_pct'].unique())
+    
     # Create figure with subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 10))
     
     # Heatmap 1: Genes above threshold
     pivot1 = diagnostic_data.pivot_table(
@@ -471,14 +477,40 @@ def _create_diagnostic_heatmap(
         fill_value=0
     )
     
+    # Ensure consistent dimensions by reindexing
+    pivot1 = pivot1.reindex(index=all_codons, columns=all_thresholds, fill_value=0)
+    
+    # Get maximum value for consistent scaling
+    max_genes = diagnostic_data['total_genes_above_threshold'].max()
+    
     sns.heatmap(
         pivot1,
         annot=True,
         fmt='d',
         cmap='Blues',
+        vmin=0,
+        vmax=max_genes,
         cbar_kws={'label': 'Number of genes'},
         ax=ax1
     )
+    
+    # Add N=xyz labels above columns for gene counts
+    for i, threshold in enumerate(all_thresholds):
+        total_genes = diagnostic_data[diagnostic_data['threshold_pct'] == threshold]['total_genes_above_threshold'].sum()
+        ax1.text(i + 0.5, -0.5, f'N={total_genes}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    # Add amino acid names to y-axis labels
+    y_labels = []
+    for codon in all_codons:
+        aa_data = diagnostic_data[diagnostic_data['codon'] == codon]
+        if not aa_data.empty:
+            aa = aa_data['amino_acid'].iloc[0]
+            aa_name = get_amino_acid_name(aa)
+            y_labels.append(f'{codon}\n({aa_name})')
+        else:
+            y_labels.append(codon)
+    
+    ax1.set_yticklabels(y_labels, rotation=0, ha='right')
     ax1.set_title(f'{species_code}: Genes Above Threshold by Codon')
     ax1.set_xlabel('Threshold (%)')
     ax1.set_ylabel('Codon')
@@ -491,14 +523,29 @@ def _create_diagnostic_heatmap(
         fill_value=0
     )
     
+    # Ensure consistent dimensions
+    pivot2 = pivot2.reindex(index=all_codons, columns=all_thresholds, fill_value=0)
+    
+    # Get maximum value for consistent scaling
+    max_go_genes = diagnostic_data['genes_with_go_annotations'].max()
+    
     sns.heatmap(
         pivot2,
         annot=True,
         fmt='d',
         cmap='Reds',
+        vmin=0,
+        vmax=max_go_genes,
         cbar_kws={'label': 'Number of genes with GO'},
         ax=ax2
     )
+    
+    # Add N=xyz labels above columns for GO annotations
+    for i, threshold in enumerate(all_thresholds):
+        total_go_genes = diagnostic_data[diagnostic_data['threshold_pct'] == threshold]['genes_with_go_annotations'].sum()
+        ax2.text(i + 0.5, -0.5, f'N={total_go_genes}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    ax2.set_yticklabels(y_labels, rotation=0, ha='right')
     ax2.set_title(f'{species_code}: Genes with GO Annotations by Codon')
     ax2.set_xlabel('Threshold (%)')
     ax2.set_ylabel('Codon')
