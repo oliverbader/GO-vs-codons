@@ -142,7 +142,7 @@ def test_pipeline():
     cug_clade: true
 go_obo: {test_dir}/go/go.obo
 adaptive:
-  start_pct: 75
+  start_pct: 95
   step_pct: 10
   rounds: 3
 wobble_only: false

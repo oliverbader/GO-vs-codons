@@ -76,7 +76,7 @@ def adaptive_go_analysis_by_codon(
             
             # Filter genes above threshold for this specific codon
             high_usage_genes = codon_data[codon_data['rel_usage'] >= threshold]['gene_id'].unique()
-            logger.debug(f"  Found {len(high_usage_genes)} genes above threshold for {codon}")
+            logger.info(f"  Found {len(high_usage_genes)} genes above threshold for {codon}")
             
             if len(high_usage_genes) < min_genes:
                 logger.debug(f"  Too few genes ({len(high_usage_genes)}) above threshold for {codon}, skipping")
@@ -234,11 +234,27 @@ def _test_go_terms_for_codon(
     
     # Get all GO terms associated with high-usage genes
     go_terms = set()
+    genes_with_go = 0
     for gene_id in high_usage_genes:
         if gene_id in gene2go_dict:
             go_terms.update(gene2go_dict[gene_id])
+            genes_with_go += 1
     
-    logger.debug(f"  Testing {len(go_terms)} GO terms for codon {codon}")
+    logger.info(f"  High-usage genes: {len(high_usage_genes)}, with GO annotations: {genes_with_go}")
+    logger.info(f"  Testing {len(go_terms)} GO terms for codon {codon}")
+    
+    if len(go_terms) == 0:
+        logger.warning(f"  No GO terms found for high-usage genes of codon {codon}")
+        if len(high_usage_genes) > 0:
+            sample_genes = list(high_usage_genes)[:5]
+            logger.debug(f"  Sample high-usage genes: {sample_genes}")
+            logger.debug(f"  Total genes in gene2go_dict: {len(gene2go_dict)}")
+            # Check if any of the sample genes are in the dictionary
+            for gene in sample_genes:
+                if gene in gene2go_dict:
+                    logger.debug(f"    {gene}: {len(gene2go_dict[gene])} GO terms")
+                else:
+                    logger.debug(f"    {gene}: NOT FOUND in gene2go_dict")
     
     for go_id in go_terms:
         # Get genes associated with this GO term

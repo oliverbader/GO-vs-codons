@@ -158,7 +158,7 @@ def get_default_config() -> Dict[str, Any]:
         ],
         'go_obo': 'data/go/go.obo',
         'adaptive': {
-            'start_pct': 75,
+            'start_pct': 95,
             'step_pct': 10,
             'rounds': 3
         },
