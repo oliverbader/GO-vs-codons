@@ -75,6 +75,10 @@ def load_genome_annotations(genome_dir: str) -> Dict[str, SeqRecord]:
                                 
                                 records[gene_id] = cds_record
                                 
+                                # Log if we found a CAL* ID (good for GAF matching)
+                                if gene_id.startswith('CAL'):
+                                    logger.debug(f"Found CAL* ID: {gene_id}")
+                                
                             except Exception as e:
                                 logger.warning(f"Error extracting CDS for {gene_id}: {e}")
                                 continue
@@ -83,7 +87,20 @@ def load_genome_annotations(genome_dir: str) -> Dict[str, SeqRecord]:
             logger.error(f"Error parsing {file_path}: {e}")
             continue
     
-    logger.info(f"Loaded {len(records)} CDS records")
+    # Analyze gene ID types for diagnostic purposes
+    cal_ids = sum(1 for gene_id in records.keys() if gene_id.startswith('CAL'))
+    systematic_ids = sum(1 for gene_id in records.keys() if '_' in gene_id and not gene_id.startswith('CAL'))
+    other_ids = len(records) - cal_ids - systematic_ids
+    
+    logger.info(f"Loaded {len(records)} CDS records:")
+    logger.info(f"  - CAL* database IDs: {cal_ids} (matches GAF files)")
+    logger.info(f"  - Systematic names: {systematic_ids} (e.g., C1_00010W_A)")
+    logger.info(f"  - Other IDs: {other_ids}")
+    
+    if cal_ids > 0:
+        sample_cal = [gene_id for gene_id in list(records.keys())[:5] if gene_id.startswith('CAL')]
+        logger.info(f"  - Sample CAL* IDs: {sample_cal}")
+    
     return records
 
 
@@ -91,11 +108,12 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
     """
     Extract gene ID from a CDS feature.
     
-    Tries multiple qualifier fields in order of preference:
-    1. locus_tag
-    2. gene
-    3. protein_id
-    4. db_xref (for systematic names, including CGD)
+    Tries multiple qualifier fields in order of preference for CGD/Candida:
+    1. id (CAL* database identifier - matches GAF files)
+    2. locus_tag (systematic name like C1_00010W_A)
+    3. gene
+    4. protein_id
+    5. db_xref (for systematic names, including CGD)
     
     Args:
         feature: Bio.SeqFeature.SeqFeature object
@@ -103,14 +121,22 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
     Returns:
         Gene ID string or None if not found
     """
-    # Priority order for gene ID extraction
+    # PRIORITY 1: Check for /id field (CAL* identifiers that match GAF files)
+    if 'id' in feature.qualifiers:
+        gene_id = feature.qualifiers['id'][0]
+        logger.debug(f"Using /id field: {gene_id}")
+        return gene_id
+    
+    # PRIORITY 2-4: Standard fields
     id_fields = ['locus_tag', 'gene', 'protein_id']
     
     for field in id_fields:
         if field in feature.qualifiers:
-            return feature.qualifiers[field][0]
+            gene_id = feature.qualifiers[field][0]
+            logger.debug(f"Using {field}: {gene_id}")
+            return gene_id
     
-    # Check db_xref for systematic names (including CGD format)
+    # PRIORITY 5: Check db_xref for systematic names (including CGD format)
     if 'db_xref' in feature.qualifiers:
         for xref in feature.qualifiers['db_xref']:
             if xref.startswith('GeneID:'):
@@ -135,8 +161,8 @@ def _extract_all_gene_ids(feature: SeqFeature) -> Dict[str, str]:
     """
     ids = {}
     
-    # Extract standard qualifiers
-    id_fields = ['locus_tag', 'gene', 'protein_id']
+    # Extract standard qualifiers including the critical /id field
+    id_fields = ['id', 'locus_tag', 'gene', 'protein_id']
     for field in id_fields:
         if field in feature.qualifiers:
             ids[field] = feature.qualifiers[field][0]
