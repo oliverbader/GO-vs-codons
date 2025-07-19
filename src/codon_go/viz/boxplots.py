@@ -203,6 +203,130 @@ def create_go_term_boxplot(
     logger.info(f"Saved GO term boxplot to {output_path}")
 
 
+def create_comprehensive_codon_boxplot(
+    df: pd.DataFrame,
+    output_path: str,
+    species_name: str = "Species",
+    title: Optional[str] = None,
+    figsize: tuple = (20, 12),
+    format: str = 'svg'
+) -> None:
+    """
+    Create comprehensive boxplot showing all amino acids with multiple codons.
+    
+    Args:
+        df: DataFrame with codon usage data
+        output_path: Path to save the figure
+        species_name: Name of the species for the title
+        title: Optional custom title
+        figsize: Figure size tuple
+        format: Output format ('svg', 'pdf', 'png')
+    """
+    logger.info(f"Creating comprehensive codon boxplot for {species_name}")
+    
+    if df.empty:
+        logger.warning("No data found for comprehensive boxplot")
+        return
+    
+    # Find amino acids with multiple codons
+    aa_codon_counts = df.groupby('AA')['codon'].nunique()
+    multi_codon_aas = aa_codon_counts[aa_codon_counts > 1].index.tolist()
+    
+    if not multi_codon_aas:
+        logger.warning("No amino acids with multiple codons found")
+        return
+    
+    # Filter data to only multi-codon amino acids
+    multi_codon_data = df[df['AA'].isin(multi_codon_aas)].copy()
+    
+    # Sort amino acids by name for consistent ordering
+    multi_codon_aas = sorted(multi_codon_aas)
+    
+    logger.info(f"Found {len(multi_codon_aas)} amino acids with multiple codons: {multi_codon_aas}")
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Prepare data for plotting
+    plot_data = []
+    codon_labels = []
+    aa_colors = {}
+    
+    # Generate distinct colors for each amino acid
+    colors = sns.color_palette("Set3", len(multi_codon_aas))
+    aa_color_map = dict(zip(multi_codon_aas, colors))
+    
+    position = 0
+    aa_positions = {}  # Track positions for amino acid labels
+    
+    for aa in multi_codon_aas:
+        aa_data = multi_codon_data[multi_codon_data['AA'] == aa]
+        codons = sorted(aa_data['codon'].unique())
+        
+        aa_start_pos = position
+        
+        for codon in codons:
+            codon_data = aa_data[aa_data['codon'] == codon]['rel_usage'].values
+            plot_data.append(codon_data)
+            codon_labels.append(codon)
+            aa_colors[position] = aa_color_map[aa]
+            position += 1
+        
+        aa_end_pos = position - 1
+        aa_positions[aa] = (aa_start_pos + aa_end_pos) / 2  # Center position for AA label
+        
+        # Add separator space between amino acids (except for the last one)
+        if aa != multi_codon_aas[-1]:
+            position += 0.5
+    
+    # Create boxplot
+    bp = ax.boxplot(
+        plot_data,
+        labels=codon_labels,
+        patch_artist=True,
+        showfliers=True,
+        flierprops=dict(marker='o', markersize=3, alpha=0.6)
+    )
+    
+    # Color boxes by amino acid
+    for i, patch in enumerate(bp['boxes']):
+        if i in aa_colors:
+            patch.set_facecolor(aa_colors[i])
+            patch.set_alpha(0.7)
+    
+    # Customize plot
+    ax.set_xlabel('Codon', fontsize=14)
+    ax.set_ylabel('Relative Usage', fontsize=14)
+    
+    if title:
+        ax.set_title(title, fontsize=16, fontweight='bold')
+    else:
+        ax.set_title(f'Codon Usage Distribution by Amino Acid - {species_name}', 
+                    fontsize=16, fontweight='bold')
+    
+    # Add amino acid labels above the plot
+    for aa, pos in aa_positions.items():
+        aa_name = get_amino_acid_name(aa)
+        ax.text(pos + 1, ax.get_ylim()[1] * 0.95, f'{aa_name} ({aa})', 
+               ha='center', va='bottom', fontsize=12, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor=aa_color_map[aa], alpha=0.3))
+    
+    # Add grid for better readability
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45, ha='right')
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save figure
+    _save_figure(fig, output_path, format)
+    plt.close()
+    
+    logger.info(f"Saved comprehensive codon boxplot to {output_path}")
+
+
 def create_multi_codon_boxplot(
     df: pd.DataFrame,
     amino_acids: List[str],
@@ -582,6 +706,7 @@ def create_cug_clade_comparison_boxplot(
 def create_batch_boxplots(
     df: pd.DataFrame,
     output_dir: str,
+    species_name: str = "Species",
     amino_acids: Optional[List[str]] = None,
     format: str = 'svg'
 ) -> None:
@@ -591,6 +716,7 @@ def create_batch_boxplots(
     Args:
         df: DataFrame with codon usage data
         output_dir: Output directory
+        species_name: Name of the species for comprehensive plot
         amino_acids: Optional list of amino acids (default: all)
         format: Output format
     """
@@ -599,6 +725,11 @@ def create_batch_boxplots(
     
     logger.info(f"Creating batch boxplots for {len(amino_acids)} amino acids")
     
+    # Create comprehensive boxplot showing all multi-codon amino acids
+    comprehensive_path = os.path.join(output_dir, f'boxplot_comprehensive_{species_name.lower().replace(" ", "_")}.{format}')
+    create_comprehensive_codon_boxplot(df, comprehensive_path, species_name, format=format)
+    
+    # Create individual boxplots for each amino acid
     for aa in amino_acids:
         output_path = os.path.join(output_dir, f'boxplot_{aa}.{format}')
         create_codon_boxplot(df, aa, output_path, format=format)
