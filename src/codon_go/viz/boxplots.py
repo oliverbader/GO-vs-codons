@@ -11,6 +11,8 @@ import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
 import logging
 
+from ..analysis.codon_usage import get_amino_acid_name
+
 logger = logging.getLogger(__name__)
 
 # Set style
@@ -80,7 +82,9 @@ def create_codon_boxplot(
     if title:
         ax.set_title(title, fontsize=14, fontweight='bold')
     else:
-        ax.set_title(f'Codon Usage Distribution for {amino_acid}', 
+        # Use three-letter amino acid name
+        aa_name = get_amino_acid_name(amino_acid)
+        ax.set_title(f'Codon Usage Distribution for {aa_name} ({amino_acid})', 
                     fontsize=14, fontweight='bold')
     
     # Add grid
@@ -178,7 +182,9 @@ def create_go_term_boxplot(
     if title:
         ax.set_title(title, fontsize=14, fontweight='bold')
     else:
-        ax.set_title(f'Codon Usage: {amino_acid} {codon}', 
+        # Use three-letter amino acid name
+        aa_name = get_amino_acid_name(amino_acid)
+        ax.set_title(f'Codon Usage: {aa_name} ({amino_acid}) {codon}', 
                     fontsize=14, fontweight='bold')
     
     # Add grid
@@ -366,7 +372,9 @@ def create_comparative_boxplot(
     if title:
         ax.set_title(title, fontsize=14, fontweight='bold')
     else:
-        ax.set_title(f'Comparative Usage: {amino_acid} {codon}', 
+        # Use three-letter amino acid name
+        aa_name = get_amino_acid_name(amino_acid)
+        ax.set_title(f'Comparative Usage: {aa_name} ({amino_acid}) {codon}', 
                     fontsize=14, fontweight='bold')
     
     # Add grid
