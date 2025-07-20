@@ -174,7 +174,7 @@ def main(config: Optional[str],
         cug_info = get_cug_clade_info()
         logger.info("CUG-clade genetic code enabled:")
         for codon, info in cug_info.items():
-            logger.info(f"  {codon}: {info['standard']} (standard) → {info['cug_clade']} (CUG-clade)")
+            logger.info(f"  {codon}: {info['standard']} (standard) -> {info['cug_clade']} (CUG-clade)")
     
     try:
         # Expand paths for file-based config
@@ -556,9 +556,9 @@ def _setup_logging(log_file: str, verbose: bool = False) -> None:
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
-    # File handler
+    # File handler with UTF-8 encoding for Unicode support
     ensure_directory(os.path.dirname(log_file))
-    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
@@ -875,7 +875,7 @@ def show_cug_info() -> None:
     click.echo("CUG-clade fungi use a non-standard genetic code where:")
     
     for codon, info in cug_info.items():
-        click.echo(f"  {codon}: {info['standard']} (standard) → {info['cug_clade']} (CUG-clade)")
+        click.echo(f"  {codon}: {info['standard']} (standard) -> {info['cug_clade']} (CUG-clade)")
     
     click.echo()
     click.echo("Common CUG-clade species include:")

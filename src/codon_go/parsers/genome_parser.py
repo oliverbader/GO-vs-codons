@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def load_genome_annotations(genome_dir: str) -> Dict[str, SeqRecord]:
     """
     Glob all EMBL/GenBank files in genome_dir, extract CDS sequences,
-    return dict gene_id → SeqRecord.
+    return dict gene_id -> SeqRecord.
     
     Args:
         genome_dir: Directory containing EMBL/GenBank files
@@ -187,10 +187,10 @@ def create_gene_id_mapping(records: Dict[str, SeqRecord]) -> Dict[str, str]:
     to create a mapping to GAF file compatible IDs.
     
     Args:
-        records: Dictionary of gene_id → SeqRecord from genome files
+        records: Dictionary of gene_id -> SeqRecord from genome files
         
     Returns:
-        Dictionary mapping genome_gene_id → gaf_gene_id
+        Dictionary mapping genome_gene_id -> gaf_gene_id
     """
     logger.info("Creating gene ID mapping for GAF compatibility")
     
@@ -211,7 +211,7 @@ def validate_cds_sequences(records: Dict[str, SeqRecord]) -> Dict[str, SeqRecord
     Validate CDS sequences for proper length and start/stop codons.
     
     Args:
-        records: Dictionary of gene_id → SeqRecord
+        records: Dictionary of gene_id -> SeqRecord
         
     Returns:
         Filtered dictionary with valid CDS sequences
@@ -254,7 +254,7 @@ def get_genome_stats(records: Dict[str, SeqRecord]) -> Dict[str, int]:
     Get basic statistics about the genome annotation.
     
     Args:
-        records: Dictionary of gene_id → SeqRecord
+        records: Dictionary of gene_id -> SeqRecord
         
     Returns:
         Dictionary with genome statistics

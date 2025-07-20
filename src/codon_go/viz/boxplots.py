@@ -596,7 +596,7 @@ def create_cug_clade_comparison_boxplot(
     
     if len(standard_ctg) > 0 and len(cug_clade_ctg) > 0:
         box_data = [standard_ctg.values, cug_clade_ctg.values]
-        labels = [f'Standard\n(CTG→Leu)\n(n={len(standard_ctg)})', f'CUG-clade\n(CTG→Ser)\n(n={len(cug_clade_ctg)})']
+        labels = [f'Standard\n(CTG->Leu)\n(n={len(standard_ctg)})', f'CUG-clade\n(CTG->Ser)\n(n={len(cug_clade_ctg)})']
         
         bp = ax1.boxplot(box_data, labels=labels, patch_artist=True)
         bp['boxes'][0].set_facecolor('lightblue')
@@ -661,9 +661,9 @@ def create_cug_clade_comparison_boxplot(
     
     # CTG usage statistics
     if len(standard_ctg) > 0:
-        summary_data.append(['Standard CTG→Leu', f'{standard_ctg.mean():.3f} ± {standard_ctg.std():.3f}'])
+        summary_data.append(['Standard CTG->Leu', f'{standard_ctg.mean():.3f} ± {standard_ctg.std():.3f}'])
     if len(cug_clade_ctg) > 0:
-        summary_data.append(['CUG-clade CTG→Ser', f'{cug_clade_ctg.mean():.3f} ± {cug_clade_ctg.std():.3f}'])
+        summary_data.append(['CUG-clade CTG->Ser', f'{cug_clade_ctg.mean():.3f} ± {cug_clade_ctg.std():.3f}'])
     
     # Leucine and serine family statistics
     if not standard_leu.empty:

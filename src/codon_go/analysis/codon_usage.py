@@ -22,7 +22,7 @@ def compute_relative_usage_by_aa(records: Dict[str, SeqRecord],
     For each gene, compute relative usage of synonymous codons per AA.
     
     Args:
-        records: Dictionary of gene_id → SeqRecord
+        records: Dictionary of gene_id -> SeqRecord
         codon_table_file: Optional path to custom codon table JSON
         cug_clade: If True, use CUG-clade genetic code (CUG codes for Serine)
         
@@ -46,7 +46,7 @@ def compute_relative_usage_by_aa(records: Dict[str, SeqRecord],
     # Apply CUG-clade modification if requested
     if cug_clade:
         codon_to_aa['CTG'] = 'S'  # CUG codes for Serine instead of Leucine
-        logger.info("Applied CUG-clade genetic code modification: CTG → Serine")
+        logger.info("Applied CUG-clade genetic code modification: CTG -> Serine")
     
     rows = []
     
