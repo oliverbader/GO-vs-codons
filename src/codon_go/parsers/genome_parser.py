@@ -90,16 +90,32 @@ def load_genome_annotations(genome_dir: str) -> Dict[str, SeqRecord]:
     # Analyze gene ID types for diagnostic purposes
     cal_ids = sum(1 for gene_id in records.keys() if gene_id.startswith('CAL'))
     systematic_ids = sum(1 for gene_id in records.keys() if '_' in gene_id and not gene_id.startswith('CAL'))
-    other_ids = len(records) - cal_ids - systematic_ids
+    locus_tag_ids = sum(1 for gene_id in records.keys() if any(c.isdigit() for c in gene_id) and not gene_id.startswith('CAL') and '_' not in gene_id)
+    other_ids = len(records) - cal_ids - systematic_ids - locus_tag_ids
     
     logger.info(f"Loaded {len(records)} CDS records:")
     logger.info(f"  - CAL* database IDs: {cal_ids} (matches GAF files)")
     logger.info(f"  - Systematic names: {systematic_ids} (e.g., C1_00010W_A)")
+    logger.info(f"  - Locus tags: {locus_tag_ids} (e.g., gene001, orf19.123)")
     logger.info(f"  - Other IDs: {other_ids}")
     
+    # Show samples of each type
     if cal_ids > 0:
-        sample_cal = [gene_id for gene_id in list(records.keys())[:5] if gene_id.startswith('CAL')]
+        sample_cal = [gene_id for gene_id in list(records.keys())[:10] if gene_id.startswith('CAL')][:3]
         logger.info(f"  - Sample CAL* IDs: {sample_cal}")
+    
+    if systematic_ids > 0:
+        sample_sys = [gene_id for gene_id in list(records.keys())[:10] if '_' in gene_id and not gene_id.startswith('CAL')][:3]
+        logger.info(f"  - Sample systematic names: {sample_sys}")
+    
+    if locus_tag_ids > 0:
+        sample_locus = [gene_id for gene_id in list(records.keys())[:10] if any(c.isdigit() for c in gene_id) and not gene_id.startswith('CAL') and '_' not in gene_id][:3]
+        logger.info(f"  - Sample locus tags: {sample_locus}")
+    
+    # Warn if we have mostly locus tags (might need GAF file with locus_tag format)
+    if locus_tag_ids > cal_ids and locus_tag_ids > systematic_ids:
+        logger.info("  📍 NOTICE: Most gene IDs are locus_tag format")
+        logger.info("  📍 Ensure your GAF file uses corresponding identifiers for matching")
     
     return records
 
@@ -108,12 +124,13 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
     """
     Extract gene ID from a CDS feature.
     
-    Tries multiple qualifier fields in order of preference for CGD/Candida:
-    1. id (CAL* database identifier - matches GAF files)
-    2. locus_tag (systematic name like C1_00010W_A)
-    3. gene
-    4. protein_id
-    5. db_xref (for systematic names, including CGD)
+    Smart priority system for CGD/Candida gene IDs:
+    1. id (if it looks like CAL* database identifier - matches GAF files)
+    2. locus_tag (systematic name like C1_00010W_A - ALWAYS as fallback)
+    3. id (if not CAL* but still useful)
+    4. gene
+    5. protein_id
+    6. db_xref (for systematic names, including CGD)
     
     Args:
         feature: Bio.SeqFeature.SeqFeature object
@@ -121,31 +138,59 @@ def _extract_gene_id(feature: SeqFeature) -> Optional[str]:
     Returns:
         Gene ID string or None if not found
     """
-    # PRIORITY 1: Check for /id field (CAL* identifiers that match GAF files)
-    if 'id' in feature.qualifiers:
-        gene_id = feature.qualifiers['id'][0]
-        logger.debug(f"Using /id field: {gene_id}")
-        return gene_id
+    # Collect all available IDs
+    available_ids = {}
     
-    # PRIORITY 2-4: Standard fields
-    id_fields = ['locus_tag', 'gene', 'protein_id']
-    
+    # Standard fields
+    id_fields = ['id', 'locus_tag', 'gene', 'protein_id']
     for field in id_fields:
         if field in feature.qualifiers:
-            gene_id = feature.qualifiers[field][0]
-            logger.debug(f"Using {field}: {gene_id}")
-            return gene_id
+            available_ids[field] = feature.qualifiers[field][0]
     
-    # PRIORITY 5: Check db_xref for systematic names (including CGD format)
+    # db_xref fields
     if 'db_xref' in feature.qualifiers:
         for xref in feature.qualifiers['db_xref']:
             if xref.startswith('GeneID:'):
-                return xref.split(':')[1]
+                available_ids['geneid'] = xref.split(':')[1]
             elif xref.startswith('CGD:'):
-                return xref.split(':')[1]
+                available_ids['cgd'] = xref.split(':')[1]
             elif xref.startswith('CAL'):  # Direct CGD systematic ID
-                return xref
+                available_ids['cal_xref'] = xref
     
+    # PRIORITY 1: Prefer /id field if it looks like CAL* database ID (matches GAF)
+    if 'id' in available_ids:
+        id_value = available_ids['id']
+        if id_value.startswith('CAL') and len(id_value) > 10:  # CAL identifiers are long
+            logger.debug(f"Using /id field (CAL* database ID): {id_value}")
+            return id_value
+    
+    # PRIORITY 2: ALWAYS try locus_tag as fallback (systematic names)
+    if 'locus_tag' in available_ids:
+        locus_tag = available_ids['locus_tag']
+        logger.debug(f"Using locus_tag (systematic name): {locus_tag}")
+        return locus_tag
+    
+    # PRIORITY 3: Use /id field even if not CAL* (might still be useful)
+    if 'id' in available_ids:
+        id_value = available_ids['id']
+        logger.debug(f"Using /id field (non-CAL): {id_value}")
+        return id_value
+    
+    # PRIORITY 4-5: Other standard fields
+    for field in ['gene', 'protein_id']:
+        if field in available_ids:
+            gene_id = available_ids[field]
+            logger.debug(f"Using {field}: {gene_id}")
+            return gene_id
+    
+    # PRIORITY 6: db_xref entries
+    for xref_field in ['cgd', 'geneid', 'cal_xref']:
+        if xref_field in available_ids:
+            gene_id = available_ids[xref_field]
+            logger.debug(f"Using {xref_field}: {gene_id}")
+            return gene_id
+    
+    logger.warning(f"No suitable gene ID found in qualifiers: {list(available_ids.keys())}")
     return None
 
 
