@@ -6,12 +6,14 @@ import os
 import sys
 import logging
 from typing import Dict, List, Optional, Set
+from pathlib import Path
 import click
 import pandas as pd
 
 from .utils.config_loader import load_config, validate_config, expand_paths
 from .utils.file_utils import ensure_directory, save_dataframe
 from .utils.warnings_config import configure_warnings
+from .utils.cache_manager import CacheManager
 from .parsers.genome_parser import load_genome_annotations, validate_cds_sequences
 from .parsers.go_parser import load_go_ontology, parse_gaf_file, propagate_go_annotations
 from .analysis.codon_usage import (compute_relative_usage_by_aa, filter_wobble_codons,
@@ -83,6 +85,15 @@ logger = logging.getLogger(__name__)
 @click.option('--quiet', '-q', 
               is_flag=True,
               help='Enable quiet mode (errors only)')
+@click.option('--force', 
+              is_flag=True,
+              help='Force recomputation of all stages, ignoring cache')
+@click.option('--cache-status', 
+              is_flag=True,
+              help='Show cache status and exit')
+@click.option('--clear-cache', 
+              type=str,
+              help='Clear cache for specific stage or "all" for everything')
 def main(config: Optional[str],
          genome_dir: Optional[str],
          go_obo: Optional[str],
@@ -99,7 +110,10 @@ def main(config: Optional[str],
          skip_validation: bool,
          figure_format: str,
          verbose: bool,
-         quiet: bool) -> None:
+         quiet: bool,
+         force: bool,
+         cache_status: bool,
+         clear_cache: Optional[str]) -> None:
     """
     Codon-GO Analysis Pipeline
     
@@ -134,7 +148,26 @@ def main(config: Optional[str],
     # Configure warnings based on verbosity
     configure_warnings(verbose=verbose)
     
+    # Handle cache options first
+    if cache_status or clear_cache:
+        if not config:
+            logger.error("Cache operations require --config")
+            return
+        
+        config_data = load_config(config)
+        output_dir = config_data.get('output_dir', 'results')
+        
+        if cache_status:
+            _show_cache_status(config_data, output_dir)
+            return
+        
+        if clear_cache:
+            _clear_cache(config_data, output_dir, clear_cache, species)
+            return
+    
     logger.info("Starting Codon-GO Analysis Pipeline")
+    if force:
+        logger.info("Force mode enabled - ignoring all cached results")
     
     # Display CUG-clade information if requested
     if cug_clade:
@@ -188,7 +221,8 @@ def main(config: Optional[str],
                 validate_only=validate_only,
                 skip_validation=skip_validation,
                 figure_format=figure_format,
-                cug_clade=species_cug_clade
+                cug_clade=species_cug_clade,
+                force=force
             )
             
             if success:
@@ -215,7 +249,8 @@ def process_species(species_config: Dict,
                    validate_only: bool,
                    skip_validation: bool,
                    figure_format: str,
-                   cug_clade: bool = False) -> bool:
+                   cug_clade: bool = False,
+                   force: bool = False) -> bool:
     """
     Process a single species through the complete pipeline.
     
@@ -236,6 +271,10 @@ def process_species(species_config: Dict,
     species_code = species_config['code']
     species_name = species_config['name']
     
+    # Initialize cache manager
+    cache_manager = CacheManager(output_dir, species_code)
+    logger.info(f"Cache manager initialized for {species_code}")
+    
     try:
         # Create output directories
         processed_dir = os.path.join(output_dir, 'processed')
@@ -245,7 +284,25 @@ def process_species(species_config: Dict,
         
         # Step 1: Load genome annotations
         logger.info("Loading genome annotations")
-        genome_records = load_genome_annotations(species_config['genome_dir'])
+        
+        # Check cache for genome loading
+        genome_files = []
+        genome_dir = Path(species_config['genome_dir'])
+        if genome_dir.exists():
+            genome_files = [str(f) for f in genome_dir.glob('*.embl')] + [str(f) for f in genome_dir.glob('*.gbk')]
+        
+        cache_file = f'{species_code}_genome_records.pkl'
+        output_files = [cache_manager.cache_dir / cache_file]
+        
+        if cache_manager.check_stage_cache('genome_loading', genome_files, [str(f) for f in output_files], force):
+            genome_records = cache_manager.load_pickle(cache_file)
+            logger.info(f"Loaded {len(genome_records)} genome records from cache")
+        else:
+            genome_records = load_genome_annotations(species_config['genome_dir'])
+            if genome_records:
+                cache_manager.save_pickle(genome_records, cache_file)
+                cache_manager.update_stage_cache('genome_loading', genome_files, [str(f) for f in output_files])
+                logger.info(f"Cached {len(genome_records)} genome records")
         
         if not genome_records:
             logger.error("No genome records loaded")
@@ -507,6 +564,52 @@ def _setup_logging(log_file: str, verbose: bool = False) -> None:
     root_logger.addHandler(file_handler)
     
     logger.info(f"Logging configured - console and file: {log_file}")
+
+
+def _show_cache_status(config_data: Dict, output_dir: str) -> None:
+    """Show cache status for all species."""
+    logger.info("=== Cache Status ===")
+    
+    for species_config in config_data.get('species', []):
+        species_code = species_config['code']
+        cache_manager = CacheManager(output_dir, species_code)
+        status = cache_manager.get_cache_status()
+        
+        print(f"\nSpecies: {species_config['name']} ({species_code})")
+        print(f"Cache directory: {status['cache_dir']}")
+        
+        if not status['stages']:
+            print("  No cached stages found")
+        else:
+            for stage_name, stage_info in status['stages'].items():
+                status_icon = "✅" if stage_info['outputs_exist'] else "❌"
+                print(f"  {status_icon} {stage_name}: {stage_info['timestamp']}")
+                if not stage_info['outputs_exist']:
+                    print(f"    Missing outputs: {stage_info['output_files']}")
+
+
+def _clear_cache(config_data: Dict, output_dir: str, clear_target: str, species_filter: Optional[str]) -> None:
+    """Clear cache for specified target."""
+    if species_filter:
+        # Clear cache for specific species
+        species_configs = [s for s in config_data.get('species', []) if s['code'] == species_filter]
+        if not species_configs:
+            logger.error(f"Species {species_filter} not found in configuration")
+            return
+    else:
+        # Clear cache for all species
+        species_configs = config_data.get('species', [])
+    
+    for species_config in species_configs:
+        species_code = species_config['code']
+        cache_manager = CacheManager(output_dir, species_code)
+        
+        if clear_target == "all":
+            cache_manager.clear_cache()
+            logger.info(f"Cleared all cache for {species_code}")
+        else:
+            cache_manager.clear_cache(clear_target)
+            logger.info(f"Cleared {clear_target} cache for {species_code}")
 
 
 def _create_summary_table(diagnostic_data: pd.DataFrame) -> pd.DataFrame:
