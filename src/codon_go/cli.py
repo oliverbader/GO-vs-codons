@@ -17,9 +17,11 @@ from .parsers.go_parser import load_go_ontology, parse_gaf_file, propagate_go_an
 from .analysis.codon_usage import (compute_relative_usage_by_aa, filter_wobble_codons,
                                    validate_cug_clade_usage, get_cug_clade_info)
 from .analysis.stats import adaptive_go_analysis_by_codon, create_gene2go_dict
+from .analysis.go_enrichment import combined_codon_go_analysis, classify_go_terms_by_category
 from .viz.boxplots import create_batch_boxplots
 from .viz.heatmap import create_batch_heatmaps
 from .viz.pca_scatter import create_batch_pca_plots
+from .viz.go_dotplot import create_go_dotplot_by_category
 
 # Configure logging (will be enhanced in main functions)
 logger = logging.getLogger(__name__)
@@ -297,6 +299,9 @@ def process_species(species_config: Dict,
         gene2go_path = os.path.join(processed_dir, f'{species_code}_gene2go.tsv')
         save_dataframe(gene2go_df, gene2go_path)
         
+        # Create gene2go dictionary for classical analysis
+        gene2go_dict = create_gene2go_dict(gene2go_df)
+        
         # Step 5: Filter for wobble amino acids if requested
         analysis_df = codon_usage_df.copy()
         if wobble_aas:
@@ -332,6 +337,88 @@ def process_species(species_config: Dict,
             logger.info(f"Saved {len(adaptive_results)} significant GO enrichment results")
         else:
             logger.warning("No significant results from adaptive analysis")
+        
+        # Step 6.5: Perform classical GO enrichment analysis by category
+        logger.info("Performing classical GO enrichment analysis by category")
+        
+        try:
+            # Get thresholds from adaptive config
+            thresholds = []
+            start_pct = adaptive_config['start_pct']
+            step_pct = adaptive_config['step_pct']
+            rounds = adaptive_config['rounds']
+            
+            for round_num in range(rounds):
+                threshold = start_pct - (round_num * step_pct)
+                if threshold > 0:
+                    thresholds.append(threshold)
+            
+            logger.info(f"Using thresholds for classical analysis: {thresholds}")
+            
+            # Get unique codons from analysis
+            unique_codons = analysis_df['codon'].unique()
+            logger.info(f"Analyzing {len(unique_codons)} codons with classical enrichment")
+            
+            # Perform combined analysis for each codon
+            for codon in unique_codons:
+                logger.info(f"Classical GO analysis for codon {codon}")
+                
+                # Run combined analysis (both classical and distribution-based)
+                combined_results = combined_codon_go_analysis(
+                    codon_usage_df=analysis_df,
+                    gene2go_dict=gene2go_dict,
+                    codon=codon,
+                    thresholds=thresholds,
+                    go_obo_path=go_obo_path,
+                    min_genes=5
+                )
+                
+                # Save results by category and method
+                for method in ['classical', 'distribution']:
+                    for category in ['BP', 'MF', 'CC']:
+                        results_df = combined_results[method][category]
+                        
+                        if not results_df.empty:
+                            # Save results
+                            output_path = os.path.join(
+                                processed_dir, 
+                                f'{species_code}_{method}_{category}_{codon}.tsv'
+                            )
+                            save_dataframe(results_df, output_path)
+                            logger.info(f"Saved {method} {category} results for {codon}: {len(results_df)} terms")
+                            
+                            # Create dot plots for classical results
+                            if method == 'classical':
+                                # Get the most significant threshold for plotting
+                                if not results_df.empty:
+                                    best_threshold = results_df.loc[results_df['adj_p_value'].idxmin(), 'threshold']
+                                    threshold_results = results_df[results_df['threshold'] == best_threshold]
+                                    
+                                    if not threshold_results.empty:
+                                        create_go_dotplot_by_category(
+                                            enrichment_results={category: threshold_results},
+                                            output_dir=figures_dir,
+                                            species_name=species_name,
+                                            codon=codon,
+                                            threshold=best_threshold,
+                                            format=figure_format
+                                        )
+                                        logger.info(f"Created {category} dot plot for {codon}")
+                        else:
+                            logger.debug(f"No {method} {category} results for {codon}")
+            
+            logger.info("Completed classical GO enrichment analysis")
+            
+            # Summary report
+            logger.info("=== Classical GO Analysis Summary ===")
+            logger.info(f"Analyzed {len(unique_codons)} codons across {len(thresholds)} thresholds")
+            logger.info(f"Generated results for categories: BP (Biological Process), MF (Molecular Function), CC (Cellular Component)")
+            logger.info(f"Output files: {species_code}_[classical|distribution]_[BP|MF|CC]_[codon].tsv")
+            logger.info(f"Dot plots: go_dotplot_[codon]_[category]_{species_name.lower().replace(' ', '_')}.{figure_format}")
+            
+        except Exception as e:
+            logger.error(f"Error in classical GO enrichment analysis: {e}")
+            logger.debug("Continuing with visualization...")
         
         # Step 7: Create visualizations (always create, even with empty results)
         logger.info("Creating visualizations")
